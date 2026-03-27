@@ -107,6 +107,7 @@ from ultralytics.utils import (
 )
 from ultralytics.utils.checks import (
     IS_PYTHON_3_10,
+    IS_PYTHON_3_13,
     IS_PYTHON_MINIMUM_3_9,
     check_apt_requirements,
     check_executorch_requirements,
@@ -916,7 +917,10 @@ class Exporter:
         try:
             import tensorflow as tf
         except ImportError:
-            check_requirements("tensorflow>=2.0.0,<=2.19.0")
+            if not IS_PYTHON_3_13:
+                check_requirements("tensorflow>=2.0.0,<=2.19.0")
+            else:
+                check_requirements("tensorflow>=2.19.0")
             import tensorflow as tf
         check_requirements(
             (
