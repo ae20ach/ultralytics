@@ -1,0 +1,30 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# Market-1501 person re-identification dataset
+# Paper: https://www.cv-foundation.org/openaccess/content_iccv_2015/papers/Zheng_Scalable_Person_Re-Identification_ICCV_2015_paper.pdf
+# Documentation: https://docs.ultralytics.com/datasets/reid/market1501/
+# Example usage: yolo train task=reid data=Market-1501.yaml model=yolo26n-reid.yaml
+
+# Dataset root directory
+path: Market-1501-v15.09.15 # dataset root dir
+train: bounding_box_train # train images (relative to 'path') - 12936 images, 751 identities
+val: query # query images for evaluation (relative to 'path') - 3368 images
+gallery: bounding_box_test # gallery images for evaluation (relative to 'path') - 19732 images
+
+# Classes (identities) - Market-1501 has 751 training identities
+nc: 751
+
+# Download script
+download: |
+  from ultralytics.utils.downloads import download
+  import zipfile, os
+
+  # Market-1501 can be downloaded from various sources
+  # Option 1: Direct download (if available)
+  url = 'https://drive.google.com/uc?id=0B8-rUzbwVRk0c054eNQs0VN3elI'
+  # Note: Google Drive downloads may require gdown package
+  # pip install gdown && gdown url -O Market-1501-v15.09.15.zip
+
+  # Manual download instructions:
+  # 1. Download Market-1501-v15.09.15.zip from https://zheng-lab.cecs.anu.edu.au/Project/project_reid.html
+  # 2. Extract to datasets/Market-1501-v15.09.15/

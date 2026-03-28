@@ -126,6 +126,19 @@ copy_paste_mode: flip # (str) copy-paste strategy for segmentation: flip or mixu
 auto_augment: randaugment # (str) classification auto augmentation policy: randaugment, autoaugment, augmix
 erasing: 0.4 # (float) random erasing probability for classification (0.0–1.0)
 
+# ReID settings --------------------------------------------------------------------------------------------------------
+reid_p: 16 # (int) number of identities per batch for PK sampling
+reid_k: 4 # (int) number of images per identity for PK sampling
+triplet_margin: 0.3 # (float) margin for batch-hard triplet loss
+triplet_weight: 1.0 # (float) weight for triplet loss
+ce_weight: 1.0 # (float) weight for cross-entropy ID loss
+center_weight: 0.0 # (float) weight for center loss (0 = disabled)
+center_momentum: 0.9 # (float) EMA momentum for center loss class centers
+focal_gamma: 0.0 # (float) focal loss gamma for ReID CE (0 = standard CE)
+supcon_temp: 0.0 # (float) supervised contrastive loss temperature (0 = use triplet loss)
+reid_reranking: False # (bool) enable k-reciprocal re-ranking at evaluation
+reid_tta: False # (bool) enable horizontal flip TTA at evaluation
+
 # Custom config.yaml ---------------------------------------------------------------------------------------------------
 cfg: # (str, optional) path to a config.yaml that overrides defaults
 

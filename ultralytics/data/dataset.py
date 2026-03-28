@@ -833,3 +833,113 @@ class ClassificationDataset:
             x["msgs"] = msgs  # warnings
             save_dataset_cache_file(self.prefix, path, x, DATASET_CACHE_VERSION)
             return samples
+
+
+class ReidDataset:
+    """Dataset class for person re-identification tasks on Market-1501.
+
+    Parses Market-1501 filename convention: `0001_c1s1_000151_01.jpg` -> pid=1, camid=0.
+    Skips junk images (pid < 0) and distractors (pid == 0).
+
+    Attributes:
+        samples (list): List of (path, pid, camid) tuples.
+        pid_to_label (dict): Mapping from raw pid to contiguous label.
+        torch_transforms (callable): Image transforms.
+        root (str): Root directory of the dataset.
+        prefix (str): Prefix for logging.
+    """
+
+    def __init__(self, root: str, args, augment: bool = False, prefix: str = ""):
+        """Initialize ReidDataset.
+
+        Args:
+            root (str): Path to dataset split directory (e.g., bounding_box_train).
+            args (Namespace): Configuration containing image size, augmentation parameters.
+            augment (bool): Whether to apply augmentations.
+            prefix (str): Prefix for logging.
+        """
+        import re as _re
+
+        self.root = root
+        self.prefix = colorstr(f"{prefix}: ") if prefix else ""
+        self.samples = []  # (filepath, pid, camid)
+        self.pid_to_label = {}
+
+        root_path = Path(root)
+        if not root_path.exists():
+            raise FileNotFoundError(f"ReID dataset path not found: {root}")
+
+        # Parse Market-1501 filenames
+        pattern = _re.compile(r"(-?\d+)_c(\d+)s\d+_\d+_\d+\.(?:jpg|png|bmp)", _re.IGNORECASE)
+        raw_pids = set()
+
+        for img_path in sorted(root_path.glob("*.jpg")) + sorted(root_path.glob("*.png")):
+            match = pattern.match(img_path.name)
+            if match is None:
+                continue
+            pid = int(match.group(1))
+            camid = int(match.group(2)) - 1  # 0-indexed
+            if pid < 0:  # junk images
+                continue
+            if pid == 0 and not augment:  # distractors only skipped in train
+                # Actually, for gallery we keep pid==0 as distractors
+                # But for query we skip them. Keep all for now, filter in val.
+                pass
+            raw_pids.add(pid)
+            self.samples.append((str(img_path), pid, camid))
+
+        if augment:
+            # For training: create contiguous labels, skip distractors (pid==0)
+            self.samples = [(p, pid, c) for p, pid, c in self.samples if pid > 0]
+            raw_pids = sorted(set(pid for _, pid, _ in self.samples))
+            self.pid_to_label = {pid: label for label, pid in enumerate(raw_pids)}
+        else:
+            # For val/test: keep original pids (used for evaluation)
+            self.pid_to_label = {}
+
+        # Build pid_to_indices for PK sampling
+        self.pid_to_indices = defaultdict(list)
+        for idx, (_, pid, _) in enumerate(self.samples):
+            label = self.pid_to_label.get(pid, pid)
+            self.pid_to_indices[label].append(idx)
+
+        LOGGER.info(f"{self.prefix}{len(self.samples)} images, {len(set(pid for _, pid, _ in self.samples))} identities")
+
+        scale = (1.0 - args.scale, 1.0)
+        self.torch_transforms = (
+            classify_augmentations(
+                size=args.imgsz,
+                scale=scale,
+                hflip=args.fliplr,
+                vflip=args.flipud,
+                erasing=args.erasing,
+                auto_augment=args.auto_augment,
+                hsv_h=args.hsv_h,
+                hsv_s=args.hsv_s,
+                hsv_v=args.hsv_v,
+            )
+            if augment
+            else classify_transforms(size=args.imgsz)
+        )
+
+    def __getitem__(self, i: int) -> dict:
+        """Return image, identity label, and camera id for a given index.
+
+        Args:
+            i (int): Index of the sample.
+
+        Returns:
+            (dict): Dictionary with 'img', 'cls' (pid label), 'camid', and 'img_path'.
+        """
+        filepath, pid, camid = self.samples[i]
+        im = cv2.imread(filepath)
+        if im is None:
+            raise FileNotFoundError(f"Image not found: {filepath}")
+        im = Image.fromarray(cv2.cvtColor(im, cv2.COLOR_BGR2RGB))
+        sample = self.torch_transforms(im)
+        label = self.pid_to_label.get(pid, pid)
+        return {"img": sample, "cls": label, "camid": camid, "img_path": filepath}
+
+    def __len__(self) -> int:
+        """Return the total number of samples."""
+        return len(self.samples)

@@ -235,6 +235,7 @@ nav:
       - Classify: tasks/classify.md
       - Pose: tasks/pose.md
       - OBB: tasks/obb.md
+      - ReID: tasks/reid.md
   - Models:
       - models/index.md
       - YOLOv3: models/yolov3.md
@@ -483,6 +484,9 @@ nav:
           - Imagenette: datasets/classify/imagenette.md
           - Imagewoof: datasets/classify/imagewoof.md
           - MNIST: datasets/classify/mnist.md
+      - Re-Identification (ReID):
+          - datasets/reid/index.md
+          - Market-1501: datasets/reid/market1501.md
       - Oriented Bounding Boxes (OBB):
           - datasets/obb/index.md
           - DOTA8: datasets/obb/dota8.md
@@ -735,6 +739,10 @@ nav:
                   - predict: reference/models/yolo/pose/predict.md
                   - train: reference/models/yolo/pose/train.md
                   - val: reference/models/yolo/pose/val.md
+              - reid:
+                  - predict: reference/models/yolo/reid/predict.md
+                  - train: reference/models/yolo/reid/train.md
+                  - val: reference/models/yolo/reid/val.md
               - segment:
                   - predict: reference/models/yolo/segment/predict.md
                   - train: reference/models/yolo/segment/train.md

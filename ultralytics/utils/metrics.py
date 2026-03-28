@@ -1530,6 +1530,228 @@ class ClassifyMetrics(SimpleClass, DataExportMixin):
         return [{"top1_acc": round(self.top1, decimals), "top5_acc": round(self.top5, decimals)}]
 
 
+class ReidMetrics(SimpleClass, DataExportMixin):
+    """Class for computing person re-identification metrics (mAP, CMC Rank-1/5/10).
+
+    Implements the standard Market-1501 evaluation protocol: for each query, rank gallery images
+    by distance, excluding same-pid-same-camid matches.
+
+    Attributes:
+        mAP (float): Mean Average Precision.
+        rank1 (float): CMC Rank-1 accuracy.
+        rank5 (float): CMC Rank-5 accuracy.
+        rank10 (float): CMC Rank-10 accuracy.
+        speed (dict): Timing information for each pipeline step.
+        task (str): The task type, set to 'reid'.
+    """
+
+    def __init__(self) -> None:
+        """Initialize ReidMetrics instance."""
+        self.mAP = 0.0
+        self.rank1 = 0.0
+        self.rank5 = 0.0
+        self.rank10 = 0.0
+        self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
+        self.task = "reid"
+
+    def process(self, query_feats, query_pids, query_camids, gallery_feats, gallery_pids, gallery_camids,
+                reranking=False):
+        """Compute mAP and CMC from query/gallery features using Market-1501 protocol.
+
+        Args:
+            query_feats (np.ndarray): Query features (Q, D).
+            query_pids (np.ndarray): Query person IDs (Q,).
+            query_camids (np.ndarray): Query camera IDs (Q,).
+            gallery_feats (np.ndarray): Gallery features (G, D).
+            gallery_pids (np.ndarray): Gallery person IDs (G,).
+            gallery_camids (np.ndarray): Gallery camera IDs (G,).
+            reranking (bool): Enable k-reciprocal re-ranking (Zhong et al., CVPR 2017).
+        """
+        if reranking:
+            dist = self._rerank_distance(query_feats, gallery_feats)
+        else:
+            # L2 distance matrix (Q, G)
+            dist = np.sqrt(
+                np.sum(query_feats ** 2, axis=1, keepdims=True)
+                + np.sum(gallery_feats ** 2, axis=1, keepdims=True).T
+                - 2 * query_feats @ gallery_feats.T
+            )
+            dist = np.clip(dist, 0, None)  # numerical stability
+
+        self._eval_distmat(dist, query_pids, query_camids, gallery_pids, gallery_camids)
+
+    def _eval_distmat(self, dist, query_pids, query_camids, gallery_pids, gallery_camids):
+        """Evaluate mAP and CMC from a precomputed distance matrix.
+
+        Args:
+            dist (np.ndarray): Distance matrix (Q, G).
+            query_pids (np.ndarray): Query person IDs (Q,).
+            query_camids (np.ndarray): Query camera IDs (Q,).
+            gallery_pids (np.ndarray): Gallery person IDs (G,).
+            gallery_camids (np.ndarray): Gallery camera IDs (G,).
+        """
+        all_ap = []
+        all_cmc = []
+        for i in range(len(query_pids)):
+            q_pid = query_pids[i]
+            q_camid = query_camids[i]
+
+            # Sort gallery by distance
+            order = np.argsort(dist[i])
+            g_pids = gallery_pids[order]
+            g_camids = gallery_camids[order]
+
+            # Remove same pid + same camid (standard Market-1501 protocol)
+            keep = ~((g_pids == q_pid) & (g_camids == q_camid))
+            g_pids = g_pids[keep]
+
+            # Binary match vector
+            matches = (g_pids == q_pid).astype(np.float32)
+
+            if matches.sum() == 0:
+                continue  # skip queries with no gallery match
+
+            # CMC
+            cmc = matches.cumsum()
+            cmc = (cmc > 0).astype(np.float32)  # first hit and beyond
+            all_cmc.append(cmc[:50])  # keep top-50 for rank computation
+
+            # AP
+            num_rel = matches.sum()
+            cum_tp = matches.cumsum()
+            precision = cum_tp / (np.arange(len(matches)) + 1)
+            ap = (precision * matches).sum() / num_rel
+            all_ap.append(ap)
+
+        if len(all_ap) == 0:
+            return
+
+        all_cmc = np.array(all_cmc)
+        cmc_curve = all_cmc.mean(axis=0)
+
+        self.mAP = float(np.mean(all_ap))
+        self.rank1 = float(cmc_curve[0]) if len(cmc_curve) > 0 else 0.0
+        self.rank5 = float(cmc_curve[4]) if len(cmc_curve) > 4 else 0.0
+        self.rank10 = float(cmc_curve[9]) if len(cmc_curve) > 9 else 0.0
+
+    @staticmethod
+    def _rerank_distance(query_feats, gallery_feats, k1=20, k2=6, lambda_value=0.3):
+        """Compute re-ranked distance matrix using k-reciprocal encoding (Zhong et al., CVPR 2017).
+
+        Args:
+            query_feats (np.ndarray): L2-normalized query features (Q, D).
+            gallery_feats (np.ndarray): L2-normalized gallery features (G, D).
+            k1 (int): K for k-reciprocal nearest neighbors.
+            k2 (int): K for query expansion.
+            lambda_value (float): Weight for original distance in final combination.
+
+        Returns:
+            (np.ndarray): Re-ranked distance matrix (Q, G).
+        """
+        # L2 normalize features for cosine similarity
+        q_norm = query_feats / (np.linalg.norm(query_feats, axis=1, keepdims=True) + 1e-12)
+        g_norm = gallery_feats / (np.linalg.norm(gallery_feats, axis=1, keepdims=True) + 1e-12)
+
+        # Pairwise similarity matrices
+        q_g_sim = q_norm @ g_norm.T
+        q_q_sim = q_norm @ q_norm.T
+        g_g_sim = g_norm @ g_norm.T
+
+        # Combined (Q+G) x (Q+G) distance matrix
+        original_dist = np.concatenate(
+            [np.concatenate([q_q_sim, q_g_sim], axis=1),
+             np.concatenate([q_g_sim.T, g_g_sim], axis=1)],
+            axis=0,
+        )
+        original_dist = np.clip(2.0 - 2.0 * original_dist, 0, None).astype(np.float32)
+        original_dist /= original_dist.max(axis=0, keepdims=True) + 1e-12
+
+        all_num = original_dist.shape[0]
+        query_num = len(query_feats)
+        initial_rank = np.argpartition(original_dist, range(1, k1 + 1), axis=1)
+
+        # Build k-reciprocal encoding vectors
+        V = np.zeros_like(original_dist, dtype=np.float32)
+        for i in range(all_num):
+            # K-reciprocal neighbors
+            forward_k = initial_rank[i, :k1 + 1]
+            backward_k = initial_rank[forward_k, :k1 + 1]
+            k_recip = forward_k[np.where(backward_k == i)[0]]
+
+            # Expand by half-k reciprocal neighbors
+            k_recip_exp = k_recip.copy()
+            for j in range(len(k_recip)):
+                candidate = k_recip[j]
+                fwd = initial_rank[candidate, :int(np.around(k1 / 2)) + 1]
+                bwd = initial_rank[fwd, :int(np.around(k1 / 2)) + 1]
+                cand_recip = fwd[np.where(bwd == candidate)[0]]
+                if len(np.intersect1d(cand_recip, k_recip)) > 2.0 / 3 * len(cand_recip):
+                    k_recip_exp = np.append(k_recip_exp, cand_recip)
+            k_recip_exp = np.unique(k_recip_exp)
+
+            weight = np.exp(-original_dist[i, k_recip_exp])
+            V[i, k_recip_exp] = weight / (np.sum(weight) + 1e-12)
+
+        # Query expansion
+        if k2 != 1:
+            V_qe = np.zeros_like(V, dtype=np.float32)
+            for i in range(all_num):
+                V_qe[i, :] = np.mean(V[initial_rank[i, :k2], :], axis=0)
+            V = V_qe
+
+        # Jaccard distance (only for query rows)
+        jaccard_dist = np.zeros((query_num, all_num), dtype=np.float32)
+        for i in range(query_num):
+            temp_min = np.zeros(all_num, dtype=np.float32)
+            ind_nz = np.where(V[i, :] != 0)[0]
+            ind_images = [np.where(V[:, ind] != 0)[0] for ind in ind_nz]
+            for j in range(len(ind_nz)):
+                temp_min[ind_images[j]] += np.minimum(V[i, ind_nz[j]], V[ind_images[j], ind_nz[j]])
+            jaccard_dist[i] = 1 - temp_min / (2.0 - temp_min + 1e-12)
+
+        # Final: combine Jaccard with original distance (query-gallery block only)
+        original_q_g = original_dist[:query_num, query_num:]
+        jaccard_q_g = jaccard_dist[:, query_num:]
+        return jaccard_q_g * (1 - lambda_value) + original_q_g * lambda_value
+
+    @property
+    def fitness(self) -> float:
+        """Return mAP as the primary fitness score."""
+        return self.mAP
+
+    @property
+    def results_dict(self) -> dict[str, float]:
+        """Return a dictionary with model's performance metrics and fitness score."""
+        return dict(zip([*self.keys, "fitness"], [self.mAP, self.rank1, self.rank5, self.rank10, self.fitness]))
+
+    @property
+    def keys(self) -> list[str]:
+        """Return a list of keys for the results_dict property."""
+        return ["metrics/mAP", "metrics/rank1", "metrics/rank5", "metrics/rank10"]
+
+    @property
+    def curves(self) -> list:
+        """Return a list of curves for accessing specific metrics curves."""
+        return []
+
+    @property
+    def curves_results(self) -> list:
+        """Return a list of curves for accessing specific metrics curves."""
+        return []
+
+    def summary(self, normalize: bool = True, decimals: int = 5) -> list[dict[str, float]]:
+        """Generate a single-row summary of ReID metrics.
+
+        Args:
+            normalize (bool): For ReID metrics, everything is normalized by default [0-1].
+            decimals (int): Number of decimal places to round the metrics values to.
+
+        Returns:
+            (list[dict[str, float]]): A list with one dictionary containing mAP and Rank-1 accuracy.
+        """
+        return [{"mAP": round(self.mAP, decimals), "rank1": round(self.rank1, decimals)}]
+
+
 class OBBMetrics(DetMetrics):
     """Metrics for evaluating oriented bounding box (OBB) detection.
 

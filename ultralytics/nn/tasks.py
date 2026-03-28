@@ -45,6 +45,7 @@ from ultralytics.nn.modules import (
     Conv2,
     ConvTranspose,
     Detect,
+    ReID,
     DWConv,
     DWConvTranspose2d,
     Focus,
@@ -78,6 +79,7 @@ from ultralytics.utils.checks import check_requirements, check_suffix, check_yam
 from ultralytics.utils.loss import (
     E2ELoss,
     PoseLoss26,
+    ReIDLoss,
     v8ClassificationLoss,
     v8DetectionLoss,
     v8OBBLoss,
@@ -709,6 +711,74 @@ class ClassificationModel(BaseModel):
     def init_criterion(self):
         """Initialize the loss criterion for the ClassificationModel."""
         return v8ClassificationLoss()
+
+
+class ReidModel(BaseModel):
+    """YOLO person re-identification model.
+
+    This class implements the YOLO ReID architecture for person re-identification tasks.
+
+    Attributes:
+        yaml (dict): Model configuration dictionary.
+        model (torch.nn.Sequential): The neural network model.
+        stride (torch.Tensor): Model stride values.
+        names (dict): Identity names dictionary.
+    """
+
+    def __init__(self, cfg="yolo26n-reid.yaml", ch=3, nc=None, verbose=True):
+        """Initialize ReidModel with YAML, channels, number of identities, verbose flag.
+
+        Args:
+            cfg (str | dict): Model configuration file path or dictionary.
+            ch (int): Number of input channels.
+            nc (int, optional): Number of identity classes.
+            verbose (bool): Whether to display model information.
+        """
+        super().__init__()
+        self._from_yaml(cfg, ch, nc, verbose)
+
+    def _from_yaml(self, cfg, ch, nc, verbose):
+        """Set model configurations and define the model architecture.
+
+        Args:
+            cfg (str | dict): Model configuration file path or dictionary.
+            ch (int): Number of input channels.
+            nc (int, optional): Number of identity classes.
+            verbose (bool): Whether to display model information.
+        """
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)
+
+        # Define model
+        ch = self.yaml["channels"] = self.yaml.get("channels", ch)
+        if nc and nc != self.yaml["nc"]:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml["nc"] = nc
+        elif not nc and not self.yaml.get("nc", None):
+            raise ValueError("nc not specified. Must specify nc in model.yaml or function arguments.")
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)
+        self.stride = torch.Tensor([1])
+        self.names = {i: f"{i}" for i in range(self.yaml["nc"])}
+        self.info()
+
+    @staticmethod
+    def reshape_outputs(model, nc):
+        """Update ReID model to specified identity count.
+
+        Args:
+            model (torch.nn.Module): Model to update.
+            nc (int): New number of identity classes.
+        """
+        name, m = list((model.model if hasattr(model, "model") else model).named_children())[-1]
+        if isinstance(m, ReID):
+            if m.classifier.out_features != nc:
+                m.classifier = torch.nn.Linear(m.embed_dim, nc, bias=False)
+        elif isinstance(m, Classify):  # fallback
+            if m.linear.out_features != nc:
+                m.linear = torch.nn.Linear(m.linear.in_features, nc)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the ReidModel."""
+        return ReIDLoss(nc=self.yaml["nc"])
 
 
 class RTDETRDetectionModel(DetectionModel):
@@ -1575,6 +1645,7 @@ def parse_model(d, ch, verbose=True):
     base_modules = frozenset(
         {
             Classify,
+            ReID,
             Conv,
             ConvTranspose,
             GhostConv,
@@ -1784,6 +1855,8 @@ def guess_model_task(model):
         m = cfg["head"][-1][-2].lower()  # output module name
         if m in {"classify", "classifier", "cls", "fc"}:
             return "classify"
+        if m == "reid":
+            return "reid"
         if "detect" in m:
             return "detect"
         if "segment" in m:
@@ -1808,6 +1881,8 @@ def guess_model_task(model):
         for m in model.modules():
             if isinstance(m, (Segment, YOLOESegment)):
                 return "segment"
+            elif isinstance(m, ReID):
+                return "reid"
             elif isinstance(m, Classify):
                 return "classify"
             elif isinstance(m, Pose):
@@ -1824,6 +1899,8 @@ def guess_model_task(model):
             return "segment"
         elif "-cls" in model.stem or "classify" in model.parts:
             return "classify"
+        elif "-reid" in model.stem or "reid" in model.parts:
+            return "reid"
         elif "-pose" in model.stem or "pose" in model.parts:
             return "pose"
         elif "-obb" in model.stem or "obb" in model.parts:

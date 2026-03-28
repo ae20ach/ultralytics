@@ -214,6 +214,128 @@ class ContiguousDistributedSampler(torch.utils.data.Sampler):
         self.epoch = epoch
 
 
+class IdentityBalancedSampler(torch.utils.data.Sampler):
+    """P-K sampler for ReID: samples P identities x K images per batch.
+
+    Each iteration: shuffle pids, pick P, sample K images per pid (with replacement if fewer than K available).
+
+    Args:
+        dataset: A ReidDataset with pid_to_indices attribute.
+        p (int): Number of identities per batch.
+        k (int): Number of images per identity per batch.
+        num_replicas (int, optional): Number of distributed processes.
+        rank (int, optional): Rank of current process.
+    """
+
+    def __init__(self, dataset, p: int = 16, k: int = 4, num_replicas: int | None = None, rank: int | None = None):
+        """Initialize IdentityBalancedSampler."""
+        self.pid_to_indices = dataset.pid_to_indices
+        self.pids = list(self.pid_to_indices.keys())
+        self.p = p
+        self.k = k
+        self.batch_size = p * k
+
+        if num_replicas is None:
+            num_replicas = dist.get_world_size() if dist.is_initialized() else 1
+        if rank is None:
+            rank = dist.get_rank() if dist.is_initialized() else 0
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+        # Each rank gets different P identities
+        self.num_batches = len(self.pids) // (self.p * self.num_replicas)
+        self.num_batches = max(self.num_batches, 1)
+        self.total_size = self.num_batches * self.batch_size
+
+    def __iter__(self) -> Iterator:
+        """Generate indices for PK sampling."""
+        # Shuffle pids deterministically
+        g = torch.Generator()
+        g.manual_seed(self.rank + 42)
+        pid_order = [self.pids[i] for i in torch.randperm(len(self.pids), generator=g).tolist()]
+
+        indices = []
+        for pid in pid_order:
+            pid_indices = self.pid_to_indices[pid]
+            if len(pid_indices) >= self.k:
+                selected = random.sample(pid_indices, self.k)
+            else:
+                selected = random.choices(pid_indices, k=self.k)
+            indices.extend(selected)
+            if len(indices) >= self.total_size:
+                break
+
+        # Pad if needed
+        while len(indices) < self.total_size:
+            pid = random.choice(self.pids)
+            pid_indices = self.pid_to_indices[pid]
+            if len(pid_indices) >= self.k:
+                selected = random.sample(pid_indices, self.k)
+            else:
+                selected = random.choices(pid_indices, k=self.k)
+            indices.extend(selected)
+
+        return iter(indices[: self.total_size])
+
+    def __len__(self) -> int:
+        """Return the number of samples per epoch."""
+        return self.total_size
+
+
+def build_reid_dataloader(
+    dataset,
+    batch_size: int,
+    workers: int,
+    p: int = 16,
+    k: int = 4,
+    shuffle: bool = True,
+    rank: int = -1,
+    pin_memory: bool = True,
+) -> InfiniteDataLoader:
+    """Build a dataloader for ReID with PK sampling for training or sequential for val.
+
+    Args:
+        dataset: ReidDataset instance.
+        batch_size (int): Batch size (P*K for training, arbitrary for val).
+        workers (int): Number of data loading workers.
+        p (int): Number of identities per batch (training only).
+        k (int): Number of images per identity (training only).
+        shuffle (bool): Whether to use PK sampling (training) or sequential (val).
+        rank (int): Process rank for DDP.
+        pin_memory (bool): Whether to use pinned memory.
+
+    Returns:
+        (InfiniteDataLoader): Configured dataloader.
+    """
+    batch_size = min(batch_size, len(dataset))
+    nd = torch.cuda.device_count()
+    nw = min(os.cpu_count() // max(nd, 1), workers)
+
+    if shuffle:
+        sampler = IdentityBalancedSampler(
+            dataset, p=p, k=k,
+            num_replicas=dist.get_world_size() if rank != -1 and dist.is_initialized() else 1,
+            rank=max(rank, 0),
+        )
+        batch_size = p * k  # override batch_size to match PK
+    else:
+        sampler = None if rank == -1 else distributed.DistributedSampler(dataset, shuffle=False)
+
+    generator = torch.Generator()
+    generator.manual_seed(6148914691236517205 + RANK)
+    return InfiniteDataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,  # sampler handles shuffling
+        num_workers=nw,
+        sampler=sampler,
+        prefetch_factor=4 if nw > 0 else None,
+        pin_memory=nd > 0 and pin_memory,
+        worker_init_fn=seed_worker,
+        generator=generator,
+    )
+
+
 def seed_worker(worker_id: int) -> None:
     """Set dataloader worker seed for reproducibility across worker processes."""
     worker_seed = torch.initial_seed() % 2**32
