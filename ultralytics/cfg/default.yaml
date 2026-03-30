@@ -106,7 +106,7 @@ cls: 0.5 # (float) classification loss gain
 dfl: 1.5 # (float) distribution focal loss gain
 dice_weight: 1.0 # (float) semantic segmentation Dice loss gain (semantic tasks)
 aux_weight: 0.4 # (float) semantic segmentation auxiliary CE loss gain (semantic tasks)
-use_ohem: True # (bool) use OHEM instead of standard CE for semantic segmentation
+use_ohem: False # (bool) use OHEM instead of standard CE for semantic segmentation
 ohem_thresh: 0.7 # (float) OHEM probability threshold for semantic segmentation
 pose: 12.0 # (float) pose loss gain (pose tasks)
 kobj: 1.0 # (float) keypoint objectness loss gain (pose tasks)

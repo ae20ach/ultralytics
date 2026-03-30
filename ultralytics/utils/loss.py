@@ -1330,7 +1330,7 @@ class SemanticSegLoss(nn.Module):
     def _ce_loss(self, preds, masks):
         """Compute cross-entropy on flattened pixels to avoid the CUDA nll_loss2d path."""
         if self.use_ohem:
-            return self.ohemce(preds, masks)
+            return self.ce(preds, masks)
         else:
             logits = preds.permute(0, 2, 3, 1).reshape(-1, self.nc)
             target = masks.reshape(-1)
