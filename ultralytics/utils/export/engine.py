@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import types
 from pathlib import Path
 
@@ -10,6 +11,9 @@ import torch
 
 from ultralytics.utils import IS_JETSON, LOGGER, TORCH_VERSION
 from ultralytics.utils.torch_utils import TORCH_2_4, TORCH_2_9
+
+
+_TORCH_ONNX_EXPORT_LOCK = threading.Lock()
 
 
 def best_onnx_opset(onnx: types.ModuleType, cuda: bool = False) -> int:
@@ -66,18 +70,21 @@ def torch2onnx(
         Setting `do_constant_folding=True` may cause issues with DNN inference for torch>=1.12.
     """
     kwargs = {"dynamo": False} if TORCH_2_4 else {}
-    torch.onnx.export(
-        torch_model,
-        im,
-        onnx_file,
-        verbose=False,
-        opset_version=opset,
-        do_constant_folding=True,  # WARNING: DNN inference with torch>=1.12 may require do_constant_folding=False
-        input_names=input_names,
-        output_names=output_names,
-        dynamic_axes=dynamic or None,
-        **kwargs,
-    )
+    # torch.onnx.export uses process-global state in torch 2.x, so concurrent exports from worker threads can trip
+    # assertions like `GLOBALS.in_onnx_export must be False`. Serialize just this call, not the whole export pipeline.
+    with _TORCH_ONNX_EXPORT_LOCK:
+        torch.onnx.export(
+            torch_model,
+            im,
+            onnx_file,
+            verbose=False,
+            opset_version=opset,
+            do_constant_folding=True,  # WARNING: DNN inference with torch>=1.12 may require do_constant_folding=False
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_axes=dynamic or None,
+            **kwargs,
+        )
 
 
 def onnx2engine(
