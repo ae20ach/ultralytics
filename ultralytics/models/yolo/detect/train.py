@@ -156,13 +156,16 @@ class DetectionTrainer(BaseTrainer):
         """
         cls_pw = getattr(self.args, "cls_pw", 0.0)
         if cls_pw > 0:
-            from ultralytics.utils.ops import labels_to_class_weights
+            classes = np.concatenate([lb["cls"].flatten() for lb in self.train_loader.dataset.labels], 0)
+            class_counts = np.bincount(classes.astype(int), minlength=self.data["nc"]).astype(float)
+            class_counts = np.where(class_counts == 0, 1e-6, class_counts)
 
-            weights = labels_to_class_weights(self.train_loader.dataset.labels, self.data["nc"])
+            weights = 1.0 / class_counts
+            weights = weights / weights.mean()  # normalize so mean equals 1.0
             if cls_pw != 1.0:
                 weights = weights**cls_pw
-                weights = weights / weights.mean()  # renormalize
-            self.model.class_weights = weights.to(self.device) * self.data["nc"]
+            weights = weights / weights.sum()  # renormalize
+            self.model.class_weights = torch.from_numpy(weights).to(self.device) * self.data["nc"]
             LOGGER.info(f"Class weights: {self.model.class_weights.cpu().numpy().round(3)}")
         else:
             self.model.class_weights = None
