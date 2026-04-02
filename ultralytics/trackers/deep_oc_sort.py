@@ -170,7 +170,8 @@ class DeepOCSORT(OCSORT):
     def get_dists(self, tracks, detections):
         """Compute cost matrix combining Buffered IoU and appearance (BOTSORT-style min fusion).
 
-        Uses min(BIoU_cost, appearance_cost) with proximity gating, plus OCM velocity cost.
+        Uses min(BIoU_cost, appearance_cost) with proximity gating, plus OCM velocity cost,
+        plus Mahalanobis distance gating from the Kalman filter.
         """
         iou_dists = self._biou_distance(tracks, detections)
         dists_mask = iou_dists > (1 - self.proximity_thresh)
@@ -183,6 +184,21 @@ class DeepOCSORT(OCSORT):
         # Add OCM velocity direction consistency cost
         vel_dists = self._velocity_direction_cost(tracks, detections)
         dists = dists + self.inertia * vel_dists
+
+        # Mahalanobis distance gating: reject kinematically impossible matches
+        if tracks and detections:
+            measurements = np.array([det.xyxy for det in detections])
+            # Convert to xyah for Kalman measurement space
+            meas_xyah = np.array([STrack.tlwh_to_xyah(np.array([
+                m[0], m[1], m[2] - m[0], m[3] - m[1]
+            ])) for m in measurements])
+            chi2_thresh = 9.4877  # chi-squared 95% threshold for 4 DOF
+            for i, track in enumerate(tracks):
+                if track.mean is not None and track.covariance is not None:
+                    gating_dist = track.kalman_filter.gating_distance(
+                        track.mean, track.covariance, meas_xyah
+                    )
+                    dists[i, gating_dist > chi2_thresh] = 1.0
 
         # Appearance: min fusion with strict gating
         if self.with_reid and self.encoder is not None:
