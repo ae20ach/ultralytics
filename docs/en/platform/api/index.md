@@ -1451,14 +1451,6 @@ Creates a checkout session for Pro subscription upgrade.
 | `billingCycle` | string | No       | Billing cycle: `monthly` (default) or `yearly`             |
 | `owner`        | string | No       | Team username for workspace upgrades (requires admin role) |
 
-### Create Portal Session
-
-```
-POST /api/billing/portal-session
-```
-
-Returns URL to billing portal for subscription management.
-
 ### Auto Top-Up
 
 Automatically add credits when balance falls below a threshold.
@@ -1602,14 +1594,6 @@ GET /api/storage
     }
 }
 ```
-
-### Recalculate Storage
-
-```
-POST /api/storage
-```
-
-Triggers a recalculation of storage usage.
 
 ---
 
