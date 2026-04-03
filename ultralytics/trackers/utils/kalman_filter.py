@@ -52,7 +52,7 @@ class KalmanFilterXYAH:
         self._update_mat = np.eye(ndim, 2 * ndim)
 
         # Motion and observation uncertainty are chosen relative to the current state estimate
-        self._std_weight_position = 1.0 / 40  # halved: trust strong detector more
+        self._std_weight_position = 1.0 / 20
         self._std_weight_velocity = 1.0 / 160
 
     def initiate(self, measurement: np.ndarray):
