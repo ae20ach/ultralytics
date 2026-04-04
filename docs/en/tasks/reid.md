@@ -62,23 +62,36 @@ Train a YOLO26n-reid model on the Market-1501 dataset for 60 epochs at image siz
         yolo reid train data=Market-1501.yaml model=yolo26n-reid.yaml pretrained=yolo26n-cls.pt epochs=60 imgsz=256
         ```
 
-### ReID-specific training arguments
+### ReID-Specific Training Arguments
 
-| Argument         | Default | Description                                                     |
-| ---------------- | ------- | --------------------------------------------------------------- |
-| `reid_p`         | `16`    | Number of identities per batch (P in PK sampling)               |
-| `reid_k`         | `4`     | Number of images per identity (K in PK sampling)                |
-| `triplet_margin` | `0.3`   | Margin for batch-hard triplet loss                              |
-| `triplet_weight` | `1.0`   | Weight for triplet loss                                         |
-| `ce_weight`      | `1.0`   | Weight for cross-entropy identity classification loss           |
-| `center_weight`  | `0.0`   | Weight for center loss (0 = disabled)                           |
-| `center_momentum`| `0.9`   | EMA momentum for center loss class centers                      |
-| `focal_gamma`    | `0.0`   | Focal loss gamma for ReID CE loss (0 = standard CE)             |
-| `supcon_temp`    | `0.0`   | Supervised contrastive loss temperature (0 = use triplet loss)  |
+These arguments are **only available for the `reid` task** and are not part of the general YOLO configuration. You can pass them via Python (`model.train(reid_p=16)`) or CLI (`yolo reid train reid_p=16 ...`).
+
+#### Batch Sampling
+
+ReID training uses **PK sampling** instead of random batching. Each training batch is built by selecting `P` random person identities and then sampling `K` images for each identity. This guarantees every batch contains multiple images of the same person, which is required for the triplet loss to find meaningful positive/negative pairs.
+
+| Argument  | Type  | Default | Description                                                                                                                                                        |
+| --------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `reid_p`  | `int` | `16`    | **P** — number of different person identities in each batch. The actual batch size equals `reid_p × reid_k` (e.g., 16 × 4 = 64 images).                           |
+| `reid_k`  | `int` | `4`     | **K** — number of images sampled per identity in each batch. Higher values give the triplet loss more same-person pairs to compare, improving hard-negative mining. |
 
 !!! tip
 
-    The effective batch size is `reid_p * reid_k`. For better hard-negative mining, use larger `reid_k` values (e.g., `reid_k=8` with `reid_p=32` for batch size 256).
+    The effective batch size is `reid_p × reid_k`. For better training, increase `reid_k` first (e.g., `reid_k=8` with `reid_p=32` for batch size 256). Make sure your GPU has enough memory for the resulting batch.
+
+#### Loss Weights
+
+ReID training combines multiple loss functions. The two main losses are **cross-entropy** (CE, for identity classification) and **triplet** (for metric learning). You can optionally enable center loss or supervised contrastive loss. Most users should keep the defaults.
+
+| Argument          | Type    | Default | Description                                                                                                                                                                                                                       |
+| ----------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ce_weight`       | `float` | `1.0`   | Weight of the **cross-entropy loss**. This loss teaches the model to classify each person's identity during training. Higher values make the model focus more on identity classification.                                          |
+| `triplet_weight`  | `float` | `1.0`   | Weight of the **triplet loss**. This loss pulls same-person embeddings closer and pushes different-person embeddings apart. It is the core metric-learning objective.                                                              |
+| `triplet_margin`  | `float` | `0.3`   | Margin for the triplet loss. The model learns to keep the distance between different-person embeddings at least this much larger than same-person distances. Typical values: 0.2–0.5.                                             |
+| `center_weight`   | `float` | `0.0`   | Weight of the **center loss** (disabled by default). When enabled (> 0), this loss pulls each person's embeddings toward a learned class center, reducing intra-class variation. Try `0.0005` if enabling.                        |
+| `center_momentum` | `float` | `0.9`   | How fast the class centers update when center loss is enabled. Value of 0.9 means centers are updated slowly using exponential moving average. Only used when `center_weight > 0`.                                                |
+| `focal_gamma`     | `float` | `0.0`   | Focal loss gamma for the cross-entropy component (disabled by default). When > 0, down-weights easy-to-classify samples so the model focuses on hard examples. Try `2.0` if you have many easy identities.                       |
+| `supcon_temp`     | `float` | `0.0`   | Temperature for **supervised contrastive loss** (disabled by default). When > 0, replaces the triplet loss with SupCon loss which uses all positive/negative pairs rather than just the hardest. Try `0.07` if enabling.          |
 
 ### Dataset format
 
@@ -156,12 +169,14 @@ For best results, combine both TTA and re-ranking:
         yolo reid val model=path/to/best.pt reid_tta=True reid_reranking=True
         ```
 
-### ReID evaluation arguments
+### ReID Evaluation Arguments
 
-| Argument         | Default | Description                                                                  |
-| ---------------- | ------- | ---------------------------------------------------------------------------- |
-| `reid_tta`       | `False` | Enable horizontal flip TTA (+1-2% mAP, 2x inference time)                   |
-| `reid_reranking` | `False` | Enable k-reciprocal re-ranking (+15-17% mAP, increases eval time)            |
+These arguments are **only available for `reid` validation** and improve accuracy without any retraining.
+
+| Argument          | Type   | Default | Description                                                                                                                                                                                                                                                     |
+| ----------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reid_tta`        | `bool` | `False` | **Test-Time Augmentation**. When enabled, the model processes both the original image and a horizontally-flipped copy, then averages the two embeddings. This makes the embedding more robust and typically adds +1–2% mAP. Trade-off: doubles inference time.   |
+| `reid_reranking`  | `bool` | `False` | **K-reciprocal re-ranking**. A post-processing step that refines the distance ranking by checking whether two images are mutual nearest neighbors. Can boost mAP by +15–17% with no retraining. Trade-off: increases evaluation time due to extra computation.   |
 
 ## Predict
 

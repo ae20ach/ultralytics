@@ -70,6 +70,15 @@ cam_0indexed: false  # set true if camera IDs start at 0
 
     Unlike detection or classification datasets, ReID datasets require a `gallery` field that specifies the gallery set used during evaluation. The evaluation protocol compares each query image against all gallery images to compute mAP and Rank-1 metrics.
 
+!!! tip "Camera ID is optional"
+
+    Camera ID (camid) is only needed for the standard Market-1501 evaluation protocol, which excludes same-person-same-camera matches from evaluation. If your custom dataset doesn't have camera information in the filenames, simply use a regex with **one capture group** (person ID only) and the pipeline will work correctly — the same-camera exclusion step is automatically skipped.
+
+    ```yaml
+    # Example: custom dataset with PID-only filenames like "0001_001.jpg"
+    filename_re: "(\d+)_\d+\.(?:jpg|png|bmp)"  # one group = PID only, no camera ID needed
+    ```
+
 ## Usage
 
 To train a YOLO ReID model on a dataset, you can use the following code snippets. For a comprehensive list of available arguments, refer to the model [Training](../../modes/train.md) page.
@@ -129,4 +138,4 @@ Classification datasets organize images into class subdirectories (e.g., `cat/`,
 
 ### Can I use custom ReID datasets with YOLO?
 
-Yes. Create a YAML config file with `path`, `train`, `val`, `gallery`, and `nc` fields pointing to your dataset. Use one of the built-in filename presets (`market1501`, `dukemtmc`, `msmt17`) via `filename_re`, or provide a custom regex pattern with two capture groups: group(1) for person ID and group(2) for camera ID. Set `cam_0indexed: true` if your camera IDs start at 0.
+Yes. Create a YAML config file with `path`, `train`, `val`, `gallery`, and `nc` fields pointing to your dataset. Use one of the built-in filename presets (`market1501`, `dukemtmc`, `msmt17`) via `filename_re`, or provide a custom regex where group(1) captures the person ID. Camera ID (group 2) is **optional** — if your regex only has one capture group, the pipeline works without camera information. If you do include camera IDs, set `cam_0indexed: true` if they start at 0.
