@@ -41,8 +41,12 @@ def log_config(**extra_kv):
         try:
             import wandb
 
-            if wandb.run and config:
-                wandb.run.config.update(config, allow_val_change=True)
+            if wandb.run:
+                # Set WandB group if provided (e.g. "distill", "downstream-imagenet")
+                if "wandb_group" in config:
+                    wandb.run.group = config.pop("wandb_group")
+                if config:
+                    wandb.run.config.update(config, allow_val_change=True)
         except ImportError:
             pass
 
