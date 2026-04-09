@@ -955,7 +955,9 @@ def plt_color_scatter(v, f, bins: int = 20, cmap: str = "viridis", alpha: float 
 
 
 @plt_settings()
-def plot_tune_results(csv_file: str = "tune_results.csv", exclude_zero_fitness_points: bool = True):
+def plot_tune_results(
+    csv_file: str = "tune_results.csv", exclude_zero_fitness_points: bool = True, num_metrics_columns: int = 1
+):
     """
     Plot the evolution results stored in a 'tune_results.csv' file. The function generates a scatter plot for each key
     in the CSV, color-coded based on fitness scores. The best-performing configurations are highlighted on the plots.
@@ -963,6 +965,7 @@ def plot_tune_results(csv_file: str = "tune_results.csv", exclude_zero_fitness_p
     Args:
         csv_file (str, optional): Path to the CSV file containing the tuning results.
         exclude_zero_fitness_points (bool, optional): Don't include points with zero fitness in tuning plots.
+        num_metrics_columns (int, optional): Number of initial columns in the CSV that are metrics (e.g., fitness) rather than hyperparameters.
 
     Examples:
         >>> plot_tune_results("path/to/tune_results.csv")
@@ -980,8 +983,9 @@ def plot_tune_results(csv_file: str = "tune_results.csv", exclude_zero_fitness_p
     # Scatter plots for each hyperparameter
     csv_file = Path(csv_file)
     data = pl.read_csv(csv_file, infer_schema_length=None)
-    num_metrics_columns = 1
-    keys = [x.strip() for x in data.columns][num_metrics_columns:]
+    keys = [x.strip() for x in data.columns]
+    fitness_keys = keys[:num_metrics_columns]  # metric keys (e.g., fitness)
+    keys = keys[num_metrics_columns:]  # hyperparameter keys
     x = data.to_numpy()
     fitness = x[:, 0]  # fitness
     if exclude_zero_fitness_points:
@@ -1011,16 +1015,17 @@ def plot_tune_results(csv_file: str = "tune_results.csv", exclude_zero_fitness_p
     _save_one_file(csv_file.with_name("tune_scatter_plots.png"))
 
     # Fitness vs iteration
-    x = range(1, len(fitness) + 1)
-    plt.figure(figsize=(10, 6), tight_layout=True)
-    plt.plot(x, fitness, marker="o", linestyle="none", label="fitness")
-    plt.plot(x, gaussian_filter1d(fitness, sigma=3), ":", label="smoothed", linewidth=2)  # smoothing line
-    plt.title("Fitness vs Iteration")
-    plt.xlabel("Iteration")
-    plt.ylabel("Fitness")
-    plt.grid(True)
-    plt.legend()
-    _save_one_file(csv_file.with_name("tune_fitness.png"))
+    for i, k in enumerate(fitness_keys):
+        x = range(1, len(fitness) + 1)
+        plt.figure(figsize=(10, 6), tight_layout=True)
+        plt.plot(x, fitness, marker="o", linestyle="none", label=k)
+        plt.plot(x, gaussian_filter1d(fitness, sigma=3), ":", label="smoothed", linewidth=2)  # smoothing line
+        plt.title("Fitness vs Iteration")
+        plt.xlabel("Iteration")
+        plt.ylabel("Fitness")
+        plt.grid(True)
+        plt.legend()
+        _save_one_file(csv_file.with_name(f"tune_{k}.png"))
 
 
 @plt_settings()

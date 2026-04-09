@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -421,7 +422,7 @@ class Tuner:
             save_dir = get_save_dir(get_cfg(train_args))
             weights_dir = save_dir / "weights"
             data = train_args.pop("data")
-            fitness = []
+            all_fitness = []
             if not isinstance(data, (list, tuple)):
                 data = [data]
             for d in data:
@@ -448,8 +449,8 @@ class Tuner:
                     LOGGER.error(f"training failure for hyperparameter tuning iteration {i + 1}\n{e}")
 
                 # Save results - MongoDB takes precedence
-                fitness.append(metrics.get("fitness") or 0.0)
-            fitness = sum(fitness) / len(fitness)
+                all_fitness.append(metrics.get("fitness") or 0.0)
+            fitness = sum(all_fitness) / len(all_fitness)
             if self.mongodb:
                 self._save_to_mongodb(fitness, mutated_hyp, metrics, i + 1)
                 self._sync_mongodb_to_csv()
@@ -461,8 +462,15 @@ class Tuner:
                     break
             else:
                 # Save to CSV only if no MongoDB
-                log_row = [round(fitness, 5)] + [mutated_hyp[k] for k in self.space.keys()]
-                headers = "" if self.tune_csv.exists() else (",".join(["fitness", *list(self.space.keys())]) + "\n")
+                log_row = [round(fitness, 5)] + all_fitness + [mutated_hyp[k] for k in self.space.keys()]
+                headers = (
+                    ""
+                    if self.tune_csv.exists()
+                    else (
+                        ",".join(["fitness", *[f"fitness-{Path(d).stem}" for d in data], *list(self.space.keys())])
+                        + "\n"
+                    )
+                )
                 with open(self.tune_csv, "a", encoding="utf-8") as f:
                     f.write(headers + ",".join(map(str, log_row)) + "\n")
 
@@ -480,7 +488,7 @@ class Tuner:
                 shutil.rmtree(best_save_dir, ignore_errors=True)  # remove iteration dirs to reduce storage space
 
             # Plot tune results
-            plot_tune_results(str(self.tune_csv))
+            plot_tune_results(str(self.tune_csv), num_metrics_columns=len(data) + 1)
 
             # Save and print tune results
             header = (
