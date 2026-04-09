@@ -26,13 +26,12 @@ def torch2ethos(
     output_dir = Path(str(file).replace(file.suffix, "_executorch_model"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    pte_file = output_dir / file.with_suffix(".pte").name
     exported_program = torch.export.export(model, (sample_input,))
     graph_module = exported_program.module(check_guards=False)
     
     compile_spec = EthosUCompileSpec(
-            target="ethos-u85-128",
-            system_config="Ethos_U85_High_End_Embedded",
+            target="ethos-u55-128",
+            system_config="Ethos_U55_High_End_Embedded",
             memory_mode="Shared_Sram",
         )
     
@@ -42,12 +41,12 @@ def torch2ethos(
 
     # Post training quantization
     quantized_graph_module = prepare_pt2e(graph_module, quantizer)
-    quantized_graph_module(*sample_input) # Calibrate the graph module with the example input
+    quantized_graph_module(sample_input)  # Calibrate the graph module with the example input
     quantized_graph_module = convert_pt2e(quantized_graph_module)
 
     _ = quantized_graph_module.print_readable()
-    
-    quantized_exported_program = torch.export.export(quantized_graph_module, sample_input)
+
+    quantized_exported_program = torch.export.export(quantized_graph_module, (sample_input,))
     
     from executorch.backends.arm.ethosu import EthosUPartitioner
     from executorch.exir import (
@@ -77,7 +76,8 @@ def torch2ethos(
     _ = executorch_program_manager.exported_program().module(check_guards=False).print_readable()
 
     # Save pte file
-    save_pte_program(executorch_program_manager, "ethos_u_minimal_example.pte")
+    pte_file = output_dir / file.with_suffix(".pte").name
+    save_pte_program(executorch_program_manager, str(pte_file))
 
     if metadata is not None:
         YAML.save(output_dir / "metadata.yaml", metadata)
