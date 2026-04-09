@@ -10,7 +10,11 @@ from ultralytics.utils import LOGGER, YAML
 
 
 def torch2ethos(
-    torch_model: torch.nn.Module, file: Path | str, sample_input: torch.Tensor, metadata: dict | None = None, prefix: str = ""
+    torch_model: torch.nn.Module,
+    file: Path | str,
+    sample_input: torch.Tensor,
+    metadata: dict | None = None,
+    prefix: str = "",
 ) -> str:
     """Export PyTorch model to Arm Ethos-U NPU using ExecuTorch.
 
