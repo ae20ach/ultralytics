@@ -545,9 +545,11 @@ class Tuner:
                     for s in best_save_dirs.values():
                         if s not in current_best_save_dirs.values():
                             shutil.rmtree(s, ignore_errors=True)
-                if len(data) == 1:
-                    for ckpt in weights_dir[0].glob("*.pt"):
-                        shutil.copy2(ckpt, self.tune_dir / "weights")
+                for j, dataset in enumerate(dataset_names):
+                    best_weights_dir = self.tune_dir / "weights" / dataset
+                    best_weights_dir.mkdir(parents=True, exist_ok=True)
+                    for ckpt in weights_dir[j].glob("*.pt"):
+                        shutil.copy2(ckpt, best_weights_dir)
                 best_save_dirs = current_best_save_dirs
             elif cleanup:
                 for s in save_dir:
