@@ -125,7 +125,7 @@ class Tuner:
         mongodb_collection = args.pop("mongodb_collection", "tuner_results")
 
         self.args = get_cfg(overrides=args)
-        self.args.exist_ok = self.args.resume  # resume w/ same tune_dir
+        self.args.exist_ok = self.args.exist_ok or self.args.resume  # resume w/ same tune_dir
         self.tune_dir = get_save_dir(self.args, name=self.args.name or "tune")
         self.args.name, self.args.exist_ok, self.args.resume = (None, False, False)  # reset to not affect training
         self.tune_file = self.tune_dir / "tune_results.ndjson"
