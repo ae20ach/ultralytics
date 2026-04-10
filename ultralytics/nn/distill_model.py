@@ -43,7 +43,7 @@ class DistillationModel(nn.Module):
     Examples:
         Initialize a distillation model
         >>> from ultralytics.nn.distill_model import DistillationModel
-        >>> model = DistillationModel("yolo26l.pt", student_model, feats_idx=[16, 19, 22, 23])
+        >>> model = DistillationModel(teacher_model="yolo26s.pt", student_model="yolo26n.pt")
     """
 
     def __init__(self, teacher_model: str | nn.Module, student_model: nn.Module, feats_idx=None):
@@ -83,8 +83,8 @@ class DistillationModel(nn.Module):
         # Get feature dimensions via dummy forward pass (hooks capture outputs)
         imgsz = student_model.args.imgsz
         with torch.inference_mode():
-            teacher_model(torch.zeros(1, 3, imgsz, imgsz).to(device))
-            student_model(torch.zeros(1, 3, imgsz, imgsz).to(device))
+            teacher_model(torch.zeros(2, 3, imgsz, imgsz).to(device))
+            student_model(torch.zeros(2, 3, imgsz, imgsz).to(device))
         teacher_output = [self._teacher_feats[idx] for idx in feats_idx]
         student_output = [self._student_feats[idx] for idx in feats_idx]
         assert len(teacher_output) == len(student_output), "Feature dimensions must match in length."
@@ -110,33 +110,29 @@ class DistillationModel(nn.Module):
         self.projector = nn.ModuleList(projectors)
 
     def __getstate__(self):
-        """Remove hooks and clear cached features before pickling to keep checkpoints clean.
+        """Return a clean copy of state for pickling without hooks and extracted features."""
+        state = self.__dict__.copy()
+        state["_hooks"] = []
+        state["_teacher_feats"] = {}
+        state["_student_feats"] = {}
+        return state
 
-        Note: Cannot use RemovableHandle.remove() here because deepcopy treats weakref as atomic,
-        so the handle's weakref still points to the ORIGINAL model's _forward_hooks — calling
-        h.remove() would delete hooks from the training model, not this copy.
-        """
-        # for idx in self.feats_idx:
-        #     self.teacher_model.model[idx]._forward_hooks.clear()
-        #     self.student_model.model[idx]._forward_hooks.clear()
-        # self._hooks = []
-        self._teacher_feats.clear()
-        self._student_feats.clear()
-        return self.__dict__
-
-    # def __setstate__(self, state):
-    #     """Restore state and re-register feature extraction hooks after unpickling."""
-    #     self.__dict__.update(state)
-    #     self._teacher_feats = {}
-    #     self._student_feats = {}
-    #     self._hooks = []
-    #     for idx in self.feats_idx:
-    #         self._hooks.append(
-    #             self.teacher_model.model[idx].register_forward_hook(FeatureHook(self._teacher_feats, idx))
-    #         )
-    #         self._hooks.append(
-    #             self.student_model.model[idx].register_forward_hook(FeatureHook(self._student_feats, idx))
-    #         )
+    def __setstate__(self, state):
+        """Clear stale features and hooks, and re-register forward hooks after unpickling."""
+        self.__dict__.update(state)
+        self._teacher_feats = {}
+        self._student_feats = {}
+        self._hooks = []
+        for idx in self.feats_idx:
+            # Clear stale hooks that were pickled with the submodels
+            self.teacher_model.model[idx]._forward_hooks.clear()
+            self.student_model.model[idx]._forward_hooks.clear()
+            self._hooks.append(
+                self.teacher_model.model[idx].register_forward_hook(FeatureHook(self._teacher_feats, idx))
+            )
+            self._hooks.append(
+                self.student_model.model[idx].register_forward_hook(FeatureHook(self._student_feats, idx))
+            )
 
     @staticmethod
     def get_distill_layers(model):

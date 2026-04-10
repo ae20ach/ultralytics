@@ -743,6 +743,8 @@ def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, A
     from ultralytics.nn.distill_model import DistillationModel
 
     if isinstance(x["model"], DistillationModel):
+        for idx in x["model"].feats_idx:
+            x["model"].student_model.model[idx]._forward_hooks.clear()
         x["model"] = x["model"].student_model
 
     if hasattr(x["model"], "args"):
