@@ -26,7 +26,8 @@ from ultralytics.data.utils import IMG_FORMATS
 from ultralytics.models.yolo.classify.train import ClassificationTrainer
 from ultralytics.nn.image_encoder import ImageEncoderModel
 from ultralytics.nn.teacher_model import TEACHER_REGISTRY, build_teacher_model, safe_key
-from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK, callbacks as ul_callbacks
+from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils import callbacks as ul_callbacks
 
 # DataComp-12M has images up to ~268M pixels. PIL raises DecompressionBombError above 179M pixels,
 # crashing DataLoader workers despite wds.warn_and_continue. Standard for web-crawled pipelines.
@@ -358,6 +359,19 @@ class ImageEncoderTrainer(ClassificationTrainer):
         self.loss_names = []
         for sk in self._safe_keys:
             self.loss_names.extend([f"{sk}/cls_cos", f"{sk}/patch_cos", f"{sk}/patch_l1"])
+        # Teacher-agnostic aggregates for cross-run WandB comparison
+        self.loss_names.extend(["cls_cos", "patch_cos", "patch_l1"])
+
+        # Define epoch-based x-axis so aggregate metrics align across backfilled and new runs
+        try:
+            import wandb
+
+            if wandb.run:
+                for prefix in ("train", "val"):
+                    for s in ("cls_cos", "patch_cos", "patch_l1"):
+                        wandb.define_metric(f"{prefix}/{s}", step_metric="epoch")
+        except ImportError:
+            pass
 
         validator = ImageEncoderValidator(
             self.test_loader, self.save_dir, args=copy(self.args), _callbacks=self.callbacks
@@ -379,7 +393,13 @@ class ImageEncoderTrainer(ClassificationTrainer):
         if loss_items is None:
             return keys
         loss_items = [round(float(x), 5) for x in loss_items]
-        return dict(zip(keys, loss_items))
+        # Append teacher-averaged aggregates (cls_cos, patch_cos, patch_l1)
+        n = len(self._safe_keys)
+        for i in range(3):
+            loss_items.append(round(sum(loss_items[j * 3 + i] for j in range(n)) / n, 5))
+        result = dict(zip(keys, loss_items))
+        result["epoch"] = self.epoch + 1
+        return result
 
     def plot_training_samples(self, batch, ni):
         """Skip training sample plotting for distillation (no class labels)."""
