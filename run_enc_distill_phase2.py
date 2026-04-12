@@ -16,7 +16,7 @@ from pathlib import Path
 
 import torch
 
-from callbacks import grad_clip, muon_w, wandb_config
+from callbacks import cls_to_det_remap, grad_clip, muon_w, wandb_config
 from ultralytics import YOLO
 
 
@@ -69,6 +69,8 @@ def main(argv: list[str]) -> None:
     wandb_group = "downstream-coco" if mode == "coco_det" else "downstream-imagenet"
 
     model = YOLO(model_yaml)
+    if mode == "coco_det":
+        cls_to_det_remap.load(model, phase1_weights)
     if mode in ("finetune", "coco_det"):
         model.add_callback("on_train_start", muon_w.override(0.1))
     model.add_callback("on_train_start", grad_clip.override(1.0))
@@ -79,11 +81,12 @@ def main(argv: list[str]) -> None:
             pretrained_from=phase1_weights,
             phase1_wandb_id=phase1_wandb_id,
             mode=mode,
+            cls_to_det_remap=mode == "coco_det",
             wandb_group=wandb_group,
         ),
     )
     train_args = dict(
-        pretrained=phase1_weights,
+        pretrained=phase1_weights if mode != "coco_det" else False,
         device=gpu if mode == "coco_det" else int(gpu),
         project=resume_args.get("project", "yolo-next-encoder"),
         save_dir=f"{NFS_RUNS}/{name}",
