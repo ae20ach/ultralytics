@@ -1022,9 +1022,7 @@ class RTDETRDetectionModel(DetectionModel):
         dec_bboxes = torch.cat([enc_bboxes.unsqueeze(0), dec_bboxes])  # (7, bs, 300, 4)
         dec_scores = torch.cat([enc_scores.unsqueeze(0), dec_scores])
 
-        args = getattr(self, "args", None)
-        nonfinite_debug = args.get("nonfinite_debug", False) if isinstance(args, dict) else getattr(args, "nonfinite_debug", False)
-        self._maybe_trap_nonfinite_dfine_boxes(dec_bboxes, enabled=supports_dfine and bool(nonfinite_debug))
+        self._maybe_trap_nonfinite_dfine_boxes(dec_bboxes, enabled=supports_dfine)
 
         loss_kwargs = {"dn_bboxes": dn_bboxes, "dn_scores": dn_scores, "dn_meta": dn_meta}
         if supports_dfine:
