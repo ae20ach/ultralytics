@@ -1050,6 +1050,7 @@ class Exporter:
             self.model,
             self.file,
             self.im,
+            dataset=self.get_int8_calibration_dataloader(prefix),
             target=self.args.target,
             metadata=self.metadata,
             prefix=prefix,

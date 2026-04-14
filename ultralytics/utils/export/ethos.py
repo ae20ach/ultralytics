@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -14,6 +16,7 @@ def torch2ethos(
     torch_model: torch.nn.Module,
     file: Path | str,
     sample_input: torch.Tensor,
+    dataset: Iterable[Any] | None = None,
     target: str = "ethos-u55-128",
     metadata: dict | None = None,
     prefix: str = "",
@@ -24,6 +27,8 @@ def torch2ethos(
         torch_model (torch.nn.Module): PyTorch model to export.
         file (Path | str): Source model file path used to derive output names.
         sample_input (torch.Tensor): Example input tensor for tracing/export.
+        dataset (Iterable[Any] | None, optional): Representative calibration dataset for PTQ. Each item may be a
+            tensor batch or a batch dictionary containing an ``img`` tensor.
         target (str, optional): Ethos target to compile for.
         metadata (dict | None, optional): Optional metadata to save as YAML.
         prefix (str, optional): Prefix for log messages.
@@ -62,7 +67,15 @@ def torch2ethos(
 
     # Post training quantization
     quantized_graph_module = prepare_pt2e(graph_module, quantizer)
-    quantized_graph_module(sample_input)  # Calibrate the graph module with the example input
+
+    calibration_batches = 0
+    for batch in dataset:
+        tensor = batch["img"] if isinstance(batch, dict) else batch
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError(f"Expected calibration batch to be a torch.Tensor, but got {type(tensor).__name__}.")
+        quantized_graph_module(tensor.to(device=sample_input.device, dtype=sample_input.dtype))
+        calibration_batches += 1
+
     quantized_graph_module = convert_pt2e(quantized_graph_module)
 
     _ = quantized_graph_module.print_readable()
