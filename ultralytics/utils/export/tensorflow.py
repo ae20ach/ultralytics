@@ -9,7 +9,8 @@ import numpy as np
 import torch
 
 from ultralytics.nn.modules import Detect, Pose, Pose26
-from ultralytics.utils import LOGGER
+from ultralytics.utils import LOGGER, MACOS
+from ultralytics.utils.checks import check_requirements, check_version
 from ultralytics.utils.downloads import attempt_download_asset
 from ultralytics.utils.files import spaces_in_path
 from ultralytics.utils.tal import make_anchors
@@ -82,6 +83,34 @@ def onnx2saved_model(
         - Requires onnx2tf package. Downloads calibration data if INT8 quantization is enabled.
         - Removes temporary files and renames quantized models after conversion.
     """
+    cuda = torch.cuda.is_available()
+    try:
+        import tensorflow as tf
+    except ImportError:
+        check_requirements("tensorflow>=2.0.0,<=2.19.0")
+        import tensorflow as tf
+    check_requirements(
+        (
+            "tf_keras<=2.19.0",  # required by 'onnx2tf' package
+            "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
+            "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
+            "ai-edge-litert>=1.2.0" + (",<1.4.0" if MACOS else ""),  # required by 'onnx2tf' package
+            "onnx>=1.12.0,<2.0.0",
+            "onnx2tf>=1.26.3,<1.29.0",  # pin to avoid h5py build issues on aarch64
+            "onnxslim>=0.1.71",
+            "onnxruntime-gpu" if cuda else "onnxruntime",
+            "protobuf>=5",
+        ),
+        cmds="--extra-index-url https://pypi.ngc.nvidia.com",  # onnx_graphsurgeon only on NVIDIA
+    )
+    check_version(
+        tf.__version__,
+        ">=2.0.0",
+        name="tensorflow",
+        verbose=True,
+        msg="https://github.com/ultralytics/ultralytics/issues/5161",
+    )
+
     # Pre-download calibration file to fix https://github.com/PINTO0309/onnx2tf/issues/545
     onnx2tf_file = Path("calibration_image_sample_data_20x128x128x3_float32.npy")
     if not onnx2tf_file.exists():
@@ -198,6 +227,7 @@ def pb2tfjs(pb_file: str, output_dir: str, half: bool = False, int8: bool = Fals
     """
     import subprocess
 
+    check_requirements("tensorflowjs")
     import tensorflow as tf
     import tensorflowjs as tfjs
 

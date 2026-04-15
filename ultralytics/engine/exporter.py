@@ -103,16 +103,12 @@ from ultralytics.utils import (
     callbacks,
     colorstr,
     get_default_args,
-    is_dgx,
-    is_jetson,
 )
 from ultralytics.utils.checks import (
     IS_PYTHON_MINIMUM_3_9,
     check_apt_requirements,
-    check_executorch_requirements,
     check_imgsz,
     check_requirements,
-    check_tensorrt,
     check_version,
     is_intel,
     is_sudo_available,
@@ -874,24 +870,8 @@ class Exporter:
         """Export YOLO model to TensorRT format https://developer.nvidia.com/tensorrt."""
         assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. use 'device=0'"
         f_onnx = self.export_onnx()  # run before TRT import https://github.com/ultralytics/ultralytics/issues/7016
-
-        # Force re-install TensorRT on CUDA 13 ARM devices to 10.15.x versions for RT-DETR exports
-        # https://github.com/ultralytics/ultralytics/issues/22873
-        if is_jetson(jetpack=7) or is_dgx():
-            check_tensorrt("10.15")
-
-        try:
-            import tensorrt as trt
-        except ImportError:
-            check_tensorrt()
-            import tensorrt as trt
-        check_version(trt.__version__, ">=7.0.0", hard=True)
-        check_version(trt.__version__, "!=10.1.0", msg="https://github.com/ultralytics/ultralytics/pull/14239")
-
         from ultralytics.utils.export.engine import onnx2engine
 
-        # Setup and checks
-        LOGGER.info(f"\n{prefix} starting export with TensorRT {trt.__version__}...")
         assert Path(f_onnx).exists(), f"failed to export ONNX file: {f_onnx}"
         f = self.file.with_suffix(".engine")  # TensorRT engine file
         onnx2engine(
@@ -914,35 +894,6 @@ class Exporter:
     @try_export
     def export_saved_model(self, prefix=colorstr("TensorFlow SavedModel:")):
         """Export YOLO model to TensorFlow SavedModel format."""
-        cuda = torch.cuda.is_available()
-        try:
-            import tensorflow as tf
-        except ImportError:
-            check_requirements("tensorflow>=2.0.0,<=2.19.0")
-            import tensorflow as tf
-        check_requirements(
-            (
-                "tf_keras<=2.19.0",  # required by 'onnx2tf' package
-                "sng4onnx>=1.0.1",  # required by 'onnx2tf' package
-                "onnx_graphsurgeon>=0.3.26",  # required by 'onnx2tf' package
-                "ai-edge-litert>=1.2.0" + (",<1.4.0" if MACOS else ""),  # required by 'onnx2tf' package
-                "onnx>=1.12.0,<2.0.0",
-                "onnx2tf>=1.26.3,<1.29.0",  # pin to avoid h5py build issues on aarch64
-                "onnxslim>=0.1.71",
-                "onnxruntime-gpu" if cuda else "onnxruntime",
-                "protobuf>=5",
-            ),
-            cmds="--extra-index-url https://pypi.ngc.nvidia.com",  # onnx_graphsurgeon only on NVIDIA
-        )
-
-        LOGGER.info(f"\n{prefix} starting export with tensorflow {tf.__version__}...")
-        check_version(
-            tf.__version__,
-            ">=2.0.0",
-            name="tensorflow",
-            verbose=True,
-            msg="https://github.com/ultralytics/ultralytics/issues/5161",
-        )
         from ultralytics.utils.export.tensorflow import onnx2saved_model
 
         f = Path(str(self.file).replace(self.file.suffix, "_saved_model"))
@@ -1029,7 +980,6 @@ class Exporter:
     def export_executorch(self, prefix=colorstr("ExecuTorch:")):
         """Export YOLO model to ExecuTorch *.pte format."""
         assert TORCH_2_9, f"ExecuTorch requires torch>=2.9.0 but torch=={TORCH_VERSION} is installed"
-        check_executorch_requirements()
         from ultralytics.utils.export.executorch import torch2executorch
 
         return torch2executorch(self.model, self.file, self.im, metadata=self.metadata, prefix=prefix)
@@ -1063,7 +1013,6 @@ class Exporter:
     @try_export
     def export_tfjs(self, prefix=colorstr("TensorFlow.js:")):
         """Export YOLO model to TensorFlow.js format."""
-        check_requirements("tensorflowjs")
         from ultralytics.utils.export.tensorflow import pb2tfjs
 
         f = str(self.file).replace(self.file.suffix, "_web_model")  # js dir
@@ -1093,16 +1042,6 @@ class Exporter:
 
         if getattr(self.model, "end2end", False):
             raise ValueError("IMX export is not supported for end2end models.")
-        check_requirements(
-            (
-                "model-compression-toolkit>=2.4.1",
-                "edge-mdt-cl<1.1.0",
-                "edge-mdt-tpc>=1.2.0",
-                "pydantic<=2.11.7",
-            )
-        )
-
-        check_requirements("imx500-converter[pt]>=3.17.3")
         from ultralytics.utils.export.imx import torch2imx
 
         # Install Java>=17
