@@ -16,12 +16,80 @@ from .track_tracker import TRACKTRACK
 TRACKER_MAP = {"bytetrack": BYTETracker, "botsort": BOTSORT, "tracktrack": TRACKTRACK}
 
 
+def _compute_dets_del(predictor, raw_preds):
+    """Compute TrackTrack's D_del set from raw detector predictions.
+
+    D_del are high-confidence detections that were removed by the tight NMS but survive a looser
+    NMS pass. TrackTrack uses these as additional low-priority candidates during association (paper
+    Eq. 1).
+
+    Args:
+        predictor (object): Predictor instance exposing `args`, `results`, and the cached
+            `_preproc_img_shape`.
+        raw_preds (torch.Tensor): Raw predictions captured before NMS by the postprocess wrapper.
+
+    Returns:
+        (list[tuple | None]): Per-batch `(xywh, conf, cls)` bundles, or None when no deleted
+            detections are found for that batch element.
+    """
+    from torchvision.ops import box_iou
+
+    from ultralytics.utils import nms, ops
+
+    is_obb = predictor.args.task == "obb"
+    preds_loose = nms.non_max_suppression(
+        raw_preds,
+        predictor.args.conf,
+        0.95,  # loose IoU; paper uses 0.95 on top of the tight 0.80 pass
+        predictor.args.classes,
+        predictor.args.agnostic_nms,
+        max_det=predictor.args.max_det,
+        nc=0 if predictor.args.task == "detect" else len(predictor.model.names),
+        end2end=getattr(predictor.model, "end2end", False),
+        rotated=is_obb,
+    )
+
+    dets_del_list = []
+    im_shape = getattr(predictor, "_preproc_img_shape", None)
+    for loose, result in zip(preds_loose, predictor.results):
+        det_boxes = (result.obb if is_obb else result.boxes).cpu()
+        if len(loose) == 0 or len(det_boxes) == 0:
+            dets_del_list.append(None)
+            continue
+
+        # Scale the loose-NMS boxes from preprocessed space back to the original image
+        loose_scaled = loose.clone()
+        if im_shape is not None:
+            loose_scaled[:, :4] = ops.scale_boxes(im_shape, loose_scaled[:, :4], result.orig_shape)
+
+        tight_xyxy = det_boxes.xyxy.cpu()
+        loose_xyxy = loose_scaled[:, :4].cpu()
+        if tight_xyxy.numel() == 0 or loose_xyxy.numel() == 0:
+            dets_del_list.append(None)
+            continue
+
+        # A loose-NMS detection counts as D_del if it does not overlap any tight-NMS detection
+        ious = box_iou(loose_xyxy, tight_xyxy)
+        max_iou, _ = ious.max(dim=1)
+        del_mask = max_iou < 0.97
+        if not del_mask.any():
+            dets_del_list.append(None)
+            continue
+
+        del_boxes = loose_scaled[del_mask]
+        del_xywh = ops.xyxy2xywh(del_boxes[:, :4])
+        dets_del_list.append((del_xywh.numpy(), del_boxes[:, 4].numpy(), del_boxes[:, 5].numpy()))
+
+    return dets_del_list
+
+
 def on_predict_start(predictor: object, persist: bool = False) -> None:
     """Initialize trackers for object tracking during prediction.
 
     Args:
-        predictor (ultralytics.engine.predictor.BasePredictor): The predictor object to initialize trackers for.
-        persist (bool, optional): Whether to persist the trackers if they already exist.
+        predictor (ultralytics.engine.predictor.BasePredictor): The predictor object to initialize
+            trackers for.
+        persist (bool, optional): Whether to reuse existing trackers if they are already attached.
 
     Examples:
         Initialize trackers for a predictor object
@@ -77,7 +145,7 @@ def on_predict_start(predictor: object, persist: bool = False) -> None:
         @wraps(orig_postprocess)
         def _postprocess_with_raw_preds(preds, img, *args, **kwargs):
             predictor._raw_preds = preds.clone() if isinstance(preds, torch.Tensor) else preds
-            predictor._preproc_img_shape = img.shape[2:]  # (H, W) of preprocessed image
+            predictor._preproc_img_shape = img.shape[2:]  # (H, W) of the preprocessed image
             return orig_postprocess(preds, img, *args, **kwargs)
 
         predictor._orig_postprocess = orig_postprocess
@@ -103,53 +171,7 @@ def on_predict_postprocess_end(predictor: object, persist: bool = False) -> None
     dets_del_list = None
     raw_preds = getattr(predictor, "_raw_preds", None)
     if raw_preds is not None and isinstance(predictor.trackers[0], TRACKTRACK):
-        from ultralytics.utils import nms, ops
-        import numpy as np
-
-        # Run looser NMS (IoU 0.95) on raw predictions
-        preds_loose = nms.non_max_suppression(
-            raw_preds,
-            predictor.args.conf,
-            0.95,  # loose IoU threshold
-            predictor.args.classes,
-            predictor.args.agnostic_nms,
-            max_det=predictor.args.max_det,
-            nc=0 if predictor.args.task == "detect" else len(predictor.model.names),
-            end2end=getattr(predictor.model, "end2end", False),
-            rotated=predictor.args.task == "obb",
-        )
-        dets_del_list = []
-        im_shape = getattr(predictor, "_preproc_img_shape", None)
-        for i_batch, (loose, result) in enumerate(zip(preds_loose, predictor.results)):
-            det_boxes = (result.obb if is_obb else result.boxes).cpu()
-            if len(loose) == 0 or len(det_boxes) == 0:
-                dets_del_list.append(None)
-                continue
-            # Scale loose NMS boxes from preprocessed coords to original image coords
-            loose_scaled = loose.clone()
-            if im_shape is not None:
-                loose_scaled[:, :4] = ops.scale_boxes(im_shape, loose_scaled[:, :4], result.orig_shape)
-            # Find D_del: loose NMS results that don't match any tight NMS result (IoU < 0.97)
-            from torchvision.ops import box_iou
-
-            tight_xyxy = det_boxes.xyxy.cpu()
-            loose_xyxy = loose_scaled[:, :4].cpu()
-            if tight_xyxy.numel() > 0 and loose_xyxy.numel() > 0:
-                ious = box_iou(loose_xyxy, tight_xyxy)
-                max_iou, _ = ious.max(dim=1)
-                del_mask = max_iou < 0.97
-                if del_mask.any():
-                    # Build D_del as numpy array with same format as det (xywh, conf, cls)
-                    del_boxes = loose_scaled[del_mask]
-                    # Convert xyxy -> xywh
-                    del_xywh = ops.xyxy2xywh(del_boxes[:, :4])
-                    del_conf = del_boxes[:, 4]
-                    del_cls = del_boxes[:, 5]
-                    dets_del_list.append((del_xywh.numpy(), del_conf.numpy(), del_cls.numpy()))
-                else:
-                    dets_del_list.append(None)
-            else:
-                dets_del_list.append(None)
+        dets_del_list = _compute_dets_del(predictor, raw_preds)
         predictor._raw_preds = None  # clear
 
     for i, result in enumerate(predictor.results):
