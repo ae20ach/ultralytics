@@ -338,16 +338,17 @@ class BaseTrainer:
         self.scaler = (
             torch.amp.GradScaler("cuda", enabled=self.amp) if TORCH_2_4 else torch.cuda.amp.GradScaler(enabled=self.amp)
         )
+
+        # Check imgsz
+        gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # max stride
+        self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
+        self.stride = gs  # for multiscale training
+
+        # resume training would directly load DistillationModel so check here
         if self.args.distill_model is not None and not isinstance(unwrap_model(self.model), DistillationModel):
             self.model = DistillationModel(student_model=self.model, teacher_model=self.args.distill_model)
         if self.world_size > 1:
             self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
-
-        # Check imgsz
-        model_for_stride = unwrap_model(self.model)
-        gs = max(int(model_for_stride.stride.max() if hasattr(model_for_stride, "stride") else 32), 32)  # max stride
-        self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
-        self.stride = gs  # for multiscale training
 
         # Batch size
         if self.batch_size < 1 and RANK == -1:  # single-GPU only, estimate best batch size
