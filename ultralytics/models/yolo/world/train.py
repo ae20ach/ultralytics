@@ -166,6 +166,14 @@ class WorldTrainer(DetectionTrainer):
 
         # Add text features
         texts = list(itertools.chain(*batch["texts"]))
+        missing = [t for t in texts if t not in self.text_embeddings]
+        if missing:
+            missing_unique = list(set(missing))
+            LOGGER.warning(f"Missing {len(missing_unique)} text embeddings, generating on the fly: {missing_unique}")
+            new_feats = unwrap_model(self.model).get_text_pe(missing_unique, len(missing_unique), cache_clip_model=False)
+            for name, feat in zip(missing_unique, new_feats.squeeze(0)):
+                self.text_embeddings[name] = feat
+        
         txt_feats = torch.stack([self.text_embeddings[text] for text in texts]).to(
             self.device, non_blocking=self.device.type == "cuda"
         )
