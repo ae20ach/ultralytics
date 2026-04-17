@@ -19,6 +19,7 @@ from .pytorch import PyTorchBackend, TorchScriptBackend
 from .rknn import RKNNBackend
 from .tensorflow import TensorFlowBackend
 from .tensorrt import TensorRTBackend
+from .tensorrt_rtx import TensorRTRTXBackend
 from .triton import TritonBackend
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "RKNNBackend",
     "TensorFlowBackend",
     "TensorRTBackend",
+    "TensorRTRTXBackend",
     "TorchScriptBackend",
     "TritonBackend",
 ]

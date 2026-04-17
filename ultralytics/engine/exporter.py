@@ -148,6 +148,14 @@ def export_formats():
             ["batch", "dynamic", "half", "int8", "nms", "fraction"],
         ],
         [
+            "TensorRT for RTX",
+            "engine_rtx",
+            ".rtx.engine",
+            False,
+            True,
+            ["batch", "dynamic", "half", "int8", "simplify", "nms", "fraction"],
+        ],
+        [
             "TensorRT",
             "engine",
             ".engine",
@@ -919,6 +927,44 @@ class Exporter:
             prefix=prefix,
         )
 
+        return f
+
+    @try_export
+    def export_engine_rtx(self, prefix=colorstr("TensorRT-RTX:")):
+        """Export YOLO model to NVIDIA TensorRT for RTX engine format.
+
+        Produces a `.rtx.engine` file portable across RTX-class GPUs. Requires the `tensorrt_rtx`
+        Python package (separate from classic `tensorrt`). Engines built here are NOT interchangeable
+        with classic TensorRT engines.
+        """
+        assert self.im.device.type != "cpu", "export running on CPU but must be on GPU, i.e. use 'device=0'"
+        f_onnx = self.export_onnx()  # run before TRT-RTX import to isolate ONNX export failures
+
+        from ultralytics.utils.checks import check_tensorrt_rtx
+
+        try:
+            import tensorrt_rtx as trt_rtx
+        except ImportError:
+            check_tensorrt_rtx()
+            import tensorrt_rtx as trt_rtx
+
+        from ultralytics.utils.export.engine_rtx import onnx2engine_rtx
+
+        LOGGER.info(f"\n{prefix} starting export with TensorRT-RTX {trt_rtx.__version__}...")
+        assert Path(f_onnx).exists(), f"failed to export ONNX file: {f_onnx}"
+        f = self.file.with_suffix(".rtx.engine")
+        onnx2engine_rtx(
+            f_onnx,
+            f,
+            half=self.args.half,
+            int8=self.args.int8,
+            dynamic=self.args.dynamic,
+            shape=self.im.shape,
+            dataset=self.get_int8_calibration_dataloader(prefix) if self.args.int8 else None,
+            metadata=self.metadata,
+            verbose=self.args.verbose,
+            prefix=prefix,
+        )
         return f
 
     @try_export

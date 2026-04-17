@@ -26,6 +26,7 @@ from .backends import (
     RKNNBackend,
     TensorFlowBackend,
     TensorRTBackend,
+    TensorRTRTXBackend,
     TorchScriptBackend,
     TritonBackend,
 )
@@ -140,6 +141,7 @@ class AutoBackend(nn.Module):
         "dnn": ONNXBackend,  # Special case: ONNX with DNN
         "openvino": OpenVINOBackend,
         "engine": TensorRTBackend,
+        "engine_rtx": TensorRTRTXBackend,
         "coreml": CoreMLBackend,
         "saved_model": TensorFlowBackend,
         "pb": TensorFlowBackend,
@@ -182,14 +184,14 @@ class AutoBackend(nn.Module):
         format = "pt" if isinstance(model, nn.Module) else self._model_type(model, dnn)
 
         # Check if format supports FP16
-        fp16 &= format in {"pt", "torchscript", "onnx", "openvino", "engine", "triton"}
+        fp16 &= format in {"pt", "torchscript", "onnx", "openvino", "engine", "engine_rtx", "triton"}
 
         # Set device
         if (
             isinstance(device, torch.device)
             and torch.cuda.is_available()
             and device.type != "cpu"
-            and format not in {"pt", "torchscript", "engine", "onnx", "paddle"}
+            and format not in {"pt", "torchscript", "engine", "engine_rtx", "onnx", "paddle"}
         ):
             device = torch.device("cpu")
 
@@ -331,8 +333,9 @@ class AutoBackend(nn.Module):
             check_suffix(p, sf)
         name = Path(p).name
         types = [s in name for s in sf]
-        types[5] |= name.endswith(".mlmodel")
-        types[8] &= not types[9]
+        types[6] |= name.endswith(".mlmodel")  # CoreML: accept legacy .mlmodel
+        types[5] &= not types[4]  # TensorRT: disambiguate against .rtx.engine
+        types[9] &= not types[10]  # TFLite: disambiguate against _edgetpu.tflite
         format = next((f for i, f in enumerate(export_formats()["Argument"]) if types[i]), None)
         if format == "-":
             format = "pt"
