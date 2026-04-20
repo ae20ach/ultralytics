@@ -41,7 +41,7 @@ The `torch2*` functions take a standard `torch.nn.Module` and an example input t
 
 ## Quick Start
 
-The fastest path is a two-line export to [ONNX](../integrations/onnx.md) with no YOLO code and no setup beyond `pip install ultralytics onnx`:
+The fastest path is a two-line export to [ONNX](../integrations/onnx.md) with no YOLO code and no setup beyond `pip install ultralytics onnx timm`:
 
 ```python
 import timm
@@ -218,7 +218,7 @@ The exported `model.pte` file is saved inside `resnet18_executorch_model/`. Requ
 
 ## Verify Your Exported Model
 
-After exporting, verify numerical parity with the original PyTorch model before shipping. A quick smoke test with ONNX Runtime compares outputs and flags tracing or quantization errors early:
+After exporting, verify numerical parity with the original PyTorch model before shipping. A quick smoke test with ONNX Runtime (`pip install onnxruntime`) compares outputs and flags tracing or quantization errors early:
 
 ```python
 import numpy as np
