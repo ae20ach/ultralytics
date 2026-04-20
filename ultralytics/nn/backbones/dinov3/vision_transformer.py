@@ -227,6 +227,7 @@ class DinoVisionTransformer(nn.Module):
     def __init__(
         self,
         name,
+        qk_layernorm: Optional[bool] = None,
     ):
         super().__init__()
 
@@ -259,6 +260,7 @@ class DinoVisionTransformer(nn.Module):
         weights                         = configs[name]['weights']
         compact_arch_name               = configs[name]['compact_arch_name']
         check_hash                      = configs[name]['check_hash']
+        qk_layernorm                    = configs[name].get("qk_layernorm", False) if qk_layernorm is None else qk_layernorm
         untie_cls_and_patch_norms       = False
         untie_global_and_local_cls_norm = False
         device                          = None
@@ -319,6 +321,7 @@ class DinoVisionTransformer(nn.Module):
                 act_layer=nn.GELU,
                 ffn_layer=ffn_layer_cls,
                 init_values=layerscale_init,
+                qk_layernorm=qk_layernorm,
                 mask_k_bias=mask_k_bias,
                 device=device,
             )

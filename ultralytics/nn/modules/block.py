@@ -1929,6 +1929,7 @@ class DEIMDINOv3STAs(nn.Module):
         conv_inplane: int = 32,
         hidden_dim: int = 224,
         split: bool = True,
+        qk_layernorm: bool = False,
         num_windows: int = 1,
         global_block_indexes: list[int] | None = None,
     ):
@@ -1945,6 +1946,7 @@ class DEIMDINOv3STAs(nn.Module):
             use_sta=use_sta,
             conv_inplane=conv_inplane,
             hidden_dim=hidden_dim,
+            qk_layernorm=qk_layernorm,
             num_windows=num_windows,
             global_block_indexes=list(global_block_indexes) if global_block_indexes is not None else None,
         )

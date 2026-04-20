@@ -44,10 +44,11 @@ class WindowedDinoVisionTransformer(DinoVisionTransformer):
     def __init__(
         self,
         name: str,
+        qk_layernorm: bool | None = None,
         num_windows: int = 4,
         global_block_indexes: list[int] | None = None,
     ):
-        super().__init__(name=name)
+        super().__init__(name=name, qk_layernorm=qk_layernorm)
         self.num_windows = num_windows
         # Default: output / interaction layers get global attention (RF-DETR convention)
         self.global_block_indexes = set(

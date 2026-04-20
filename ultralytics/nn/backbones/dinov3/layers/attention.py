@@ -49,6 +49,7 @@ class SelfAttention(nn.Module):
         proj_bias: bool = True,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
+        qk_layernorm: bool = False,
         mask_k_bias: bool = False,
         device=None,
     ) -> None:
@@ -59,6 +60,14 @@ class SelfAttention(nn.Module):
 
         linear_class = LinearKMaskedBias if mask_k_bias else nn.Linear
         self.qkv = linear_class(dim, dim * 3, bias=qkv_bias, device=device)
+        self.qk_layernorm = qk_layernorm
+        if qk_layernorm:
+            self.q_norm = (
+                nn.LayerNorm(head_dim, eps=1e-5, elementwise_affine=False, device=device)
+            )
+            self.k_norm = (
+                nn.LayerNorm(head_dim, eps=1e-5, elementwise_affine=False, device=device)
+            )
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim, bias=proj_bias, device=device)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -111,6 +120,8 @@ class SelfAttention(nn.Module):
         qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
         q, k, v = torch.unbind(qkv, 2)
         q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+        if getattr(self, "qk_layernorm", False):
+            q, k = self.q_norm(q), self.k_norm(k)
         if rope is not None:
             q, k = self.apply_rope(q, k, rope)
         x = torch.nn.functional.scaled_dot_product_attention(q, k, v)

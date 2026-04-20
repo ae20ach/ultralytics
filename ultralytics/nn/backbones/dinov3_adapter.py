@@ -77,6 +77,7 @@ class DINOv3STAs(nn.Module):
         use_sta: bool = True,
         conv_inplane: int = 32,
         hidden_dim: int = 224,
+        qk_layernorm: bool = False,
         num_windows: int = 1,
         global_block_indexes: list[int] | None = None,
     ):
@@ -84,12 +85,13 @@ class DINOv3STAs(nn.Module):
         if num_windows > 1:
             self.dinov3 = WindowedDinoVisionTransformer(
                 name=name,
+                qk_layernorm=qk_layernorm,
                 num_windows=num_windows,
                 # Default: interaction_indexes are the global attention layers
                 global_block_indexes=global_block_indexes or list(interaction_indexes),
             )
         else:
-            self.dinov3 = DinoVisionTransformer(name=name)
+            self.dinov3 = DinoVisionTransformer(name=name, qk_layernorm=qk_layernorm)
         self.interaction_indexes = list(interaction_indexes)
         self.patch_size = patch_size
         self._last_load_source = "none"

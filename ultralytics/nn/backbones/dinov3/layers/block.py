@@ -35,6 +35,7 @@ class SelfAttentionBlock(nn.Module):
         norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
         attn_class: Callable[..., nn.Module] = SelfAttention,
         ffn_layer: Callable[..., nn.Module] = Mlp,
+        qk_layernorm: bool = False,
         mask_k_bias: bool = False,
         device=None,
     ) -> None:
@@ -48,6 +49,7 @@ class SelfAttentionBlock(nn.Module):
             proj_bias=proj_bias,
             attn_drop=attn_drop,
             proj_drop=drop,
+            qk_layernorm=qk_layernorm,
             mask_k_bias=mask_k_bias,
             device=device,
         )
