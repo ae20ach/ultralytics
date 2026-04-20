@@ -1,7 +1,7 @@
-# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
-# Mega depth dataset: NYU real (30x) + Hypersim real (1x) + COCO pseudo (1x)
-# ~200K train images (24K NYU + 60K Hypersim + 118K COCO), 654 NYU val
-# Combines real indoor depth (NYU+Hypersim) with diverse pseudo-depth (COCO)
+# Ultralytics 🚀 AGPL-3.0 License
+# Mega depth dataset v2: NYU (30x) + Hypersim + COCO pseudo + vKITTI2 + DIODE
+# ~224K train images: 24K NYU + 60K Hypersim + 118K COCO pseudo + 21K vKITTI2 + 771 DIODE
+# Adds outdoor coverage via vKITTI2 (synthetic) and DIODE (real LiDAR)
 
 path: /data/depth_anything/mega_dataset
 train: images/train
