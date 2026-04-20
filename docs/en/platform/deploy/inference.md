@@ -103,11 +103,11 @@ Adjust detection behavior with parameters in the collapsible **Parameters** sect
 
 ![Ultralytics Platform Predict Tab Parameters Sliders](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/platform/predict-tab-parameters-sliders.avif)
 
-| Parameter      | Range                      | Default | Description                                                |
-| -------------- | -------------------------- | ------- | ---------------------------------------------------------- |
-| **Confidence** | 0.01 – 1.0                 | 0.25    | Minimum confidence threshold                               |
-| **IoU**        | 0.0 – 0.95                 | 0.7     | NMS IoU threshold                                          |
-| **Image Size** | 320, 640, 1280 (UI toggle) | 640     | Input resize dimension (API accepts any value 32 – 1280)   |
+| Parameter      | Range                      | Default | Description                                              |
+| -------------- | -------------------------- | ------- | -------------------------------------------------------- |
+| **Confidence** | 0.01 – 1.0                 | 0.25    | Minimum confidence threshold                             |
+| **IoU**        | 0.0 – 0.95                 | 0.7     | NMS IoU threshold                                        |
+| **Image Size** | 320, 640, 1280 (UI toggle) | 640     | Input resize dimension (API accepts any value 32 – 1280) |
 
 !!! note "Auto-Rerun"
 

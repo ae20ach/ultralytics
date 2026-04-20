@@ -538,17 +538,17 @@ GET /api/datasets/{datasetId}/images
 
 **Query Parameters:**
 
-| Parameter           | Type   | Description                                                                                                   |
-| ------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| `split`             | string | Filter by split: `train`, `val`, `test`                                                                       |
-| `offset`            | int    | Pagination offset (default: 0)                                                                                |
-| `limit`             | int    | Items per page (default: 50, max: 5000)                                                                       |
+| Parameter           | Type   | Description                                                                                                                                                                                                    |
+| ------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `split`             | string | Filter by split: `train`, `val`, `test`                                                                                                                                                                        |
+| `offset`            | int    | Pagination offset (default: 0)                                                                                                                                                                                 |
+| `limit`             | int    | Items per page (default: 50, max: 5000)                                                                                                                                                                        |
 | `sort`              | string | Sort order: `newest`, `oldest`, `name-asc`, `name-desc`, `height-asc`, `height-desc`, `width-asc`, `width-desc`, `size-asc`, `size-desc`, `labels-asc`, `labels-desc` (some disabled for >100k image datasets) |
-| `hasLabel`          | string | Filter by label status (`true` or `false`)                                                                    |
-| `hasError`          | string | Filter by error status (`true` or `false`)                                                                    |
-| `search`            | string | Search by filename or image hash                                                                              |
-| `includeThumbnails` | string | Include signed thumbnail URLs (default: `true`)                                                               |
-| `includeImageUrls`  | string | Include signed full image URLs (default: `false`)                                                             |
+| `hasLabel`          | string | Filter by label status (`true` or `false`)                                                                                                                                                                     |
+| `hasError`          | string | Filter by error status (`true` or `false`)                                                                                                                                                                     |
+| `search`            | string | Search by filename or image hash                                                                                                                                                                               |
+| `includeThumbnails` | string | Include signed thumbnail URLs (default: `true`)                                                                                                                                                                |
+| `includeImageUrls`  | string | Include signed full image URLs (default: `false`)                                                                                                                                                              |
 
 #### Get Signed Image URLs
 
