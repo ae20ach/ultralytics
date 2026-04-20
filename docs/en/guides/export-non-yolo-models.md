@@ -44,8 +44,9 @@ The `torch2*` functions take a standard `torch.nn.Module` and an example input t
 The fastest path is a two-line export to [ONNX](../integrations/onnx.md) with no YOLO code and no setup beyond `pip install ultralytics onnx`:
 
 ```python
-import torch
 import timm
+import torch
+
 from ultralytics.utils.export import torch2onnx
 
 model = timm.create_model("resnet18", pretrained=True).eval()
@@ -59,8 +60,8 @@ For other formats, swap `torch2onnx` for the target function in the [format tabl
 Every example below uses the same setup, a pretrained ResNet-18 from timm in evaluation mode:
 
 ```python
-import torch
 import timm
+import torch
 
 model = timm.create_model("resnet18", pretrained=True).eval()
 im = torch.randn(1, 3, 224, 224)
@@ -114,6 +115,7 @@ Requires `openvino>=2024.0.0` (or `>=2025.2.0` on macOS 15.4+) and `torch>=2.1`.
 
 ```python
 import coremltools as ct
+
 from ultralytics.utils.export import torch2coreml
 
 inputs = [ct.TensorType("input", shape=(1, 3, 224, 224))]
@@ -133,7 +135,7 @@ Requires `coremltools>=9.0`, `torch>=1.11`, and `numpy<=2.3.5`. Not supported on
 TF SavedModel export goes through ONNX as an intermediate step:
 
 ```python
-from ultralytics.utils.export import torch2onnx, onnx2saved_model
+from ultralytics.utils.export import onnx2saved_model, torch2onnx
 
 torch2onnx(model, im, output_file="resnet18.onnx")
 keras_model = onnx2saved_model("resnet18.onnx", output_dir="resnet18_saved_model")
@@ -159,6 +161,7 @@ Continuing from the SavedModel export above, convert the returned Keras model to
 
 ```python
 from pathlib import Path
+
 from ultralytics.utils.export import keras2pb
 
 keras2pb(keras_model, output_file=Path("resnet18_saved_model/resnet18.pb"))
@@ -179,7 +182,7 @@ The directory contains fixed-name `model.ncnn.param` and `model.ncnn.bin` files 
 MNN export requires an ONNX file as input. Export to ONNX first, then convert:
 
 ```python
-from ultralytics.utils.export import torch2onnx, onnx2mnn
+from ultralytics.utils.export import onnx2mnn, torch2onnx
 
 torch2onnx(model, im, output_file="resnet18.onnx")
 onnx2mnn("resnet18.onnx", output_file="resnet18.mnn")
@@ -220,8 +223,8 @@ After exporting, verify numerical parity with the original PyTorch model before 
 ```python
 import numpy as np
 import onnxruntime as ort
-import torch
 import timm
+import torch
 
 model = timm.create_model("resnet18", pretrained=True).eval()
 im = torch.randn(1, 3, 224, 224)
