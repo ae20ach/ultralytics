@@ -10,19 +10,17 @@ Deploying PyTorch models to production usually means juggling a different export
 
 Ultralytics ships standalone export utilities that wrap all of these behind one consistent interface. You can export any `torch.nn.Module`, including [timm](https://github.com/huggingface/pytorch-image-models) image models, [torchvision](https://pytorch.org/vision/) classifiers and detectors, or your own custom architectures, to [ONNX](../integrations/onnx.md), [TorchScript](../integrations/torchscript.md), [OpenVINO](../integrations/openvino.md), [CoreML](../integrations/coreml.md), [NCNN](../integrations/ncnn.md), [PaddlePaddle](../integrations/paddlepaddle.md), [MNN](../integrations/mnn.md), [ExecuTorch](../integrations/executorch.md), and [TensorFlow SavedModel](../integrations/tf-savedmodel.md) without learning each backend separately.
 
-This guide walks through every supported format with working code, explains the dependencies and platform constraints for each, and shows how to verify your exported model matches the original PyTorch output.
-
 ## Why Use Ultralytics for Non-YOLO Export?
 
-- **One API across 9+ formats:** learn a single calling convention instead of a dozen.
+- **One API across 10 formats:** learn a single calling convention instead of a dozen.
 - **Automatic dependency resolution:** missing packages (`onnx`, `coremltools`, `openvino`, `MNN`, `pnnx`, etc.) are detected and installed on first use.
-- **Battle-tested export pipeline:** the same code path ships in production for every Ultralytics YOLO export.
+- **Production-tested:** the same export code path powers every Ultralytics YOLO export.
 - **FP16 and INT8 quantization** built in for formats that support it (OpenVINO, CoreML, MNN, NCNN).
 - **Works on CPU:** no GPU required for the export step itself, so you can run it locally on any laptop.
 
 ## Supported Export Formats
 
-All functions accept a standard `torch.nn.Module` and an example input tensor. No YOLO-specific attributes are required.
+The `torch2*` functions take a standard `torch.nn.Module` and an example input tensor. MNN, TF SavedModel, and TF Frozen Graph go through an intermediate ONNX or Keras artifact. No YOLO-specific attributes are required in either case.
 
 | Format          | Function              | Install                                            | Output                         |
 | --------------- | --------------------- | -------------------------------------------------- | ------------------------------ |
@@ -106,7 +104,11 @@ from ultralytics.utils.export import torch2openvino
 ov_model = torch2openvino(model, im, output_dir="resnet18_openvino_model")
 ```
 
-The directory contains a fixed-name `model.xml` and `model.bin` pair. OpenVINO names the inputs after your model's `forward` argument names (typically `x` for generic models). Supports `half=True` for FP16 and `int8=True` for INT8 quantization (INT8 also requires a `calibration_dataset`). Requires `openvino>=2024.0.0` (or `>=2025.2.0` on macOS 15.4+) and `torch>=2.1`.
+The directory contains a fixed-name `model.xml` and `model.bin` pair. OpenVINO names the inputs after your model's `forward` argument names (typically `x` for generic models).
+
+Pass `half=True` for FP16 or `int8=True` for INT8 quantization. INT8 additionally requires a `calibration_dataset` argument.
+
+Requires `openvino>=2024.0.0` (or `>=2025.2.0` on macOS 15.4+) and `torch>=2.1`.
 
 ### Export to CoreML
 
@@ -118,7 +120,13 @@ inputs = [ct.TensorType("input", shape=(1, 3, 224, 224))]
 ct_model = torch2coreml(model, inputs, im, classifier_names=None, output_file="resnet18.mlpackage")
 ```
 
-For [classification](https://www.ultralytics.com/glossary/image-classification) models, pass a list of class names to `classifier_names` to add a classification head to the CoreML model. Requires `coremltools>=9.0`, `torch>=1.11`, and `numpy<=2.3.5`. Not supported on Windows. A `BlobWriter not loaded` error at import time usually means `coremltools` has no wheel for your Python version. Use Python 3.10–3.13.
+For [classification](https://www.ultralytics.com/glossary/image-classification) models, pass a list of class names to `classifier_names` to add a classification head to the CoreML model.
+
+Requires `coremltools>=9.0`, `torch>=1.11`, and `numpy<=2.3.5`. Not supported on Windows.
+
+!!! warning "`BlobWriter not loaded` error"
+
+    `coremltools>=9.0` ships wheels for Python 3.10–3.13 on macOS and Linux. On newer Python versions the native C extension fails to load. Use Python 3.10–3.13 for CoreML export.
 
 ### Export to TensorFlow SavedModel
 
@@ -131,18 +139,28 @@ torch2onnx(model, im, output_file="resnet18.onnx")
 keras_model = onnx2saved_model("resnet18.onnx", output_dir="resnet18_saved_model")
 ```
 
-The function returns a Keras model and also generates TFLite files (`.tflite`) inside `resnet18_saved_model/`. Requires `tensorflow>=2.0.0,<=2.19.0`, `onnx2tf>=1.26.3,<1.29.0`, `tf_keras<=2.19.0`, `sng4onnx>=1.0.1`, `onnx_graphsurgeon>=0.3.26` (install with `--extra-index-url https://pypi.ngc.nvidia.com`), `ai-edge-litert>=1.2.0` (`,<1.4.0` on macOS), `onnxslim>=0.1.71`, `onnx>=1.12.0,<2.0.0`, and `protobuf>=5`.
+The function returns a Keras model and also generates TFLite files (`.tflite`) inside `resnet18_saved_model/`.
+
+Requirements:
+
+- `tensorflow>=2.0.0,<=2.19.0`
+- `onnx2tf>=1.26.3,<1.29.0`
+- `tf_keras<=2.19.0`
+- `sng4onnx>=1.0.1`
+- `onnx_graphsurgeon>=0.3.26` (install with `--extra-index-url https://pypi.ngc.nvidia.com`)
+- `ai-edge-litert>=1.2.0` (`,<1.4.0` on macOS)
+- `onnxslim>=0.1.71`
+- `onnx>=1.12.0,<2.0.0`
+- `protobuf>=5`
 
 ### Export to TensorFlow Frozen Graph
 
-Building on the TF SavedModel export, you can create a frozen graph:
+Continuing from the SavedModel export above, convert the returned Keras model to a frozen `.pb` graph:
 
 ```python
 from pathlib import Path
-from ultralytics.utils.export import torch2onnx, onnx2saved_model, keras2pb
+from ultralytics.utils.export import keras2pb
 
-torch2onnx(model, im, output_file="resnet18.onnx")
-keras_model = onnx2saved_model("resnet18.onnx", output_dir="resnet18_saved_model")
 keras2pb(keras_model, output_file=Path("resnet18_saved_model/resnet18.pb"))
 ```
 
@@ -177,7 +195,13 @@ from ultralytics.utils.export import torch2paddle
 torch2paddle(model, im, output_dir="resnet18_paddle_model")
 ```
 
-Requires `x2paddle` and the correct PaddlePaddle distribution for your platform: `paddlepaddle-gpu>=3.0.0,<3.3.0` on CUDA, `paddlepaddle==3.0.0` on ARM64 CPU, or `paddlepaddle>=3.0.0,<3.3.0` on other CPUs. Not supported on NVIDIA Jetson.
+Requires `x2paddle` and the correct PaddlePaddle distribution for your platform:
+
+- `paddlepaddle-gpu>=3.0.0,<3.3.0` on CUDA
+- `paddlepaddle==3.0.0` on ARM64 CPU
+- `paddlepaddle>=3.0.0,<3.3.0` on other CPUs
+
+Not supported on NVIDIA Jetson.
 
 ### Export to ExecuTorch
 
@@ -220,8 +244,6 @@ For other runtimes, the input tensor name may differ. OpenVINO, for example, use
 ## Known Limitations
 
 - **Multi-input support is uneven**: `torch2onnx`, `torch2openvino`, and `torch2torchscript` accept a tuple or list of example tensors for models with multiple inputs. `torch2coreml`, `torch2ncnn`, `torch2paddle`, and `torch2executorch` assume a single input tensor.
-- **Eval mode required**: Always call `model.eval()` before exporting.
-- **CoreML wheel availability**: `coremltools>=9.0` ships wheels for Python 3.10–3.13. On newer Python versions the C extension fails to load with a `BlobWriter not loaded` error. Use Python 3.10–3.13 for CoreML export.
 - **ExecuTorch needs `flatc`**: The ExecuTorch runtime requires the FlatBuffers compiler. Install with `brew install flatbuffers` on macOS or `apt install flatbuffers-compiler` on Ubuntu.
 - **No inference via Ultralytics**: Exported non-YOLO models cannot be loaded back through `YOLO()` for inference. Use the native runtime for each format ([ONNX Runtime](../integrations/onnx.md), [OpenVINO Runtime](../integrations/openvino.md), etc.).
 - **YOLO-only formats**: [Axelera](../integrations/axelera.md) and [Sony IMX500](../integrations/sony-imx500.md) exports require YOLO-specific model attributes and are not available for generic models.
@@ -237,25 +259,9 @@ Any `torch.nn.Module`. This includes models from timm, torchvision, or any custo
 
 All supported formats (TorchScript, ONNX, OpenVINO, CoreML, TF SavedModel, NCNN, PaddlePaddle, MNN, ExecuTorch) can export on CPU. No GPU is required for the export process itself. TensorRT is the only format that requires an NVIDIA GPU.
 
-### Why does CoreML export fail with BlobWriter error?
-
-The error usually means `coremltools` cannot load its native C extension because no wheel is published for your Python version. `coremltools==9.0` ships wheels for Python 3.10–3.13 on macOS and Linux. Create a Python 3.10–3.13 environment to export CoreML models.
-
-### Can I export models with multiple inputs?
-
-Partially. `torch2onnx`, `torch2openvino`, and `torch2torchscript` accept a tuple or list of example tensors and handle multi-input models correctly. `torch2coreml`, `torch2ncnn`, `torch2paddle`, and `torch2executorch` still assume a single input tensor, so DETR-style models with multiple inputs will need a workaround for those formats.
-
-### How is this different from using torch.onnx.export directly?
-
-The Ultralytics export functions wrap `torch.onnx.export` and similar tools with sensible defaults, automatic dependency checking, and consistent logging. The main advantage is a unified API across ten formats rather than learning each tool's API separately.
-
 ### What Ultralytics version do I need?
 
-The standalone export functions are available starting from `ultralytics>=8.4.38` following the [exporter refactor](https://github.com/ultralytics/ultralytics/pull/23914) and the [unified-args update](https://github.com/ultralytics/ultralytics/pull/24120) that standardized the `output_file` and `output_dir` parameters.
-
-### Can I export a timm model to ONNX with Ultralytics?
-
-Yes, timm models are standard `torch.nn.Module` instances, so they work with `torch2onnx` out of the box. Load the model with `timm.create_model(..., pretrained=True).eval()`, prepare an input tensor matching the model's expected shape, and call `torch2onnx(model, im, output_file="model.onnx")`. See the [ONNX example](#export-to-onnx) above.
+The standalone export functions are available starting from `ultralytics>=8.4.38` following the exporter refactor and the unified-args update that standardized the `output_file` and `output_dir` parameters.
 
 ### Can I export a torchvision model to CoreML for iOS deployment?
 
