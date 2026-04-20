@@ -169,7 +169,7 @@ keras2pb(keras_model, output_file=Path("resnet18_saved_model/resnet18.pb"))
 ```python
 from ultralytics.utils.export import torch2ncnn
 
-torch2ncnn(model, im, output_dir="resnet18_ncnn_model", device=torch.device("cpu"))
+torch2ncnn(model, im, output_dir="resnet18_ncnn_model")
 ```
 
 The directory contains fixed-name `model.ncnn.param` and `model.ncnn.bin` files along with a `model_ncnn.py` wrapper. Dependencies `ncnn` and `pnnx` are installed automatically on first use.
