@@ -890,7 +890,7 @@ sudo systemctl disable <service-name>
 
 ### 3. Profile Memory Usage
 
-Before optimizing, identify which processes are actually consuming RAM. `procrank` sorts processes by PSS (Proportional Set Size), which reflects the true per-process memory footprint more accurately than RSS:
+Before optimizing, identify which processes are actually consuming RAM. `procrank` sorts processes by PSS (Proportional Set Size), which reflects the true per-process memory footprint more accurately than RSS (Resident Set Size, the total physical RAM pages mapped by a process, including pages shared with other processes):
 
 ```bash
 git clone https://github.com/csimmonds/procrank_linux.git
