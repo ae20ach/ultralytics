@@ -5,7 +5,7 @@ Usage:
     python run_enc_distill_phase2.py <gpu> <phase1_weights> <mode> [name] [phase1_wandb_id] [epochs] [patience]
     python run_enc_distill_phase2.py <gpu> --resume <last.pt>
 
-    mode: "finetune" (MuSGD), "linear" (AdamW frozen), "adamw_ft" (AdamW finetune), "coco_det" (COCO detection)
+    mode: "inet_finetune" (ImageNet MuSGD ft), "inet_linear_probe" (ImageNet AdamW linear probe), "inet_adamw_finetune" (ImageNet AdamW ft), "coco_det_finetune" (COCO detection), "coco_pose_finetune" (COCO pose)
 
 Finetune params match exp5b (reproduced CE baseline, 75.95% top-1) exactly,
 only epochs/patience shortened for faster evaluation.
@@ -70,14 +70,14 @@ def main(argv: list[str]) -> None:
         if len(argv) > 1
         else resume_args.get("pretrained", "runs/classify/yolo-next-encoder/phase1-d7-dinov3-convnextb/weights/best.pt")
     )
-    mode = argv[2] if len(argv) > 2 else ("linear" if resume_args.get("freeze") else "finetune")
+    mode = argv[2] if len(argv) > 2 else ("inet_linear_probe" if resume_args.get("freeze") else "inet_finetune")
     name = argv[3] if len(argv) > 3 else resume_args.get("name", f"phase2-{mode}-d7")
     phase1_wandb_id = argv[4] if len(argv) > 4 else ""
     epochs = int(argv[5]) if len(argv) > 5 else None
     patience = int(argv[6]) if len(argv) > 6 else None
 
-    if mode in ("coco_det", "coco_det_frozen"):
-        # Infer det model from phase1 cls model (e.g. yolo26s-cls.yaml -> yolo26s.yaml)
+    if mode in ("coco_det_finetune", "coco_det_finetune_frozen", "coco_pose_finetune"):
+        # Infer det/pose model from phase1 cls model (yolo26s-cls.yaml -> yolo26s.yaml / yolo26s-pose.yaml)
         cls_yaml = "yolo26s-cls.yaml"
         args_yaml = Path(phase1_weights).parent.parent / "args.yaml"
         if args_yaml.exists():
@@ -85,15 +85,15 @@ def main(argv: list[str]) -> None:
                 if line.startswith("model:"):
                     cls_yaml = line.split(":", 1)[1].strip()
                     break
-        model_yaml = cls_yaml.replace("-cls", "")
+        model_yaml = cls_yaml.replace("-cls", "-pose") if mode == "coco_pose_finetune" else cls_yaml.replace("-cls", "")
     else:
         model_yaml = "yolo26s-cls.yaml"
-    wandb_group = "downstream-coco" if mode == "coco_det" else "downstream-imagenet"
+    wandb_group = {"coco_det_finetune": "downstream-coco", "coco_pose_finetune": "downstream-coco-pose"}.get(mode, "downstream-imagenet")
 
     model = YOLO(model_yaml)
     # NOTE: C2PSA remap tested and abandoned (17.77% vs 28.02% without remap).
     # Standard pretrained= flow transfers backbone layers 0-8 via intersect_dicts.
-    if mode in ("finetune", "coco_det", "coco_det_frozen"):
+    if mode == "inet_finetune":
         model.add_callback("on_train_start", muon_w.override(0.1))
     model.add_callback("on_train_start", grad_clip.override(1.0))
     sync_start, sync_end = nfs_sync.setup(str(paths.NFS_MIRROR_ROOT), interval_sec=paths.SYNC_INTERVAL_SEC)
@@ -106,13 +106,13 @@ def main(argv: list[str]) -> None:
             pretrained_from=phase1_weights,
             phase1_wandb_id=phase1_wandb_id,
             mode=mode,
-            cls_to_det_remap=mode == "coco_det",
+            cls_to_det_remap=mode == "coco_det_finetune",
             wandb_group=wandb_group,
         ),
     )
     train_args = dict(
         pretrained=phase1_weights,
-        device=gpu if mode == "coco_det" else int(gpu),
+        device=gpu if mode == "coco_det_finetune" else int(gpu),
         **paths.run_paths(name),
         cos_lr=True,
         warmup_bias_lr=0,
@@ -122,7 +122,7 @@ def main(argv: list[str]) -> None:
         deterministic=True,
         workers=8,
     )
-    if mode == "linear":
+    if mode == "inet_linear_probe":
         train_args.update(
             data="/data/shared-datasets/imagenet",
             epochs=epochs or 50,
@@ -137,7 +137,7 @@ def main(argv: list[str]) -> None:
             warmup_epochs=1,
             optimizer="AdamW",
         )
-    elif mode == "adamw_ft":
+    elif mode == "inet_adamw_finetune":
         train_args.update(
             data="/data/shared-datasets/imagenet",
             epochs=epochs or 50,
@@ -153,30 +153,88 @@ def main(argv: list[str]) -> None:
             optimizer="AdamW",
             **_AUG_ARGS,
         )
-    elif mode in ("coco_det", "coco_det_frozen"):
+    elif mode in ("coco_det_finetune", "coco_det_finetune_frozen"):
         train_args.update(
             data="coco.yaml",
             epochs=epochs or 70,
             batch=128,
             imgsz=640,
-            patience=patience or 50,
+            nbs=64,
+            patience=patience or 100,
             lr0=0.00038,
-            lrf=0.882,
-            momentum=0.948,
+            lrf=0.88219,
+            momentum=0.94751,
             weight_decay=0.00027,
-            warmup_epochs=0.99,
+            warmup_epochs=0.98745,
+            warmup_momentum=0.54064,
+            warmup_bias_lr=0.05684,
+            cos_lr=False,
             close_mosaic=10,
             end2end=True,
-            mosaic=0.992,
+            box=9.83241,
+            cls=0.64896,
+            dfl=0.95824,
+            pose=12.0,
+            kobj=1.0,
+            mosaic=0.99182,
             mixup=0.05,
-            copy_paste=0.404,
+            cutmix=0.00082,
+            copy_paste=0.40413,
+            copy_paste_mode="flip",
             scale=0.9,
-            fliplr=0.304,
+            fliplr=0.30393,
+            translate=0.27484,
+            degrees=0.00012,
+            shear=0.00136,
+            hsv_h=0.01315,
+            hsv_s=0.35348,
+            hsv_v=0.19383,
+            erasing=0.4,
+            auto_augment="randaugment",
             optimizer="MuSGD",
         )
-        if mode == "coco_det_frozen":
+        # NOTE: sgd_w/cls_w/o2m/detach_epoch from yolo26s.pt recipe are not exposed
+        # as train_args in our ultralytics checkout (cfg validator rejects). muon_w
+        # is set via callback since it isn't in DEFAULT_CFG_DICT either.
+        model.add_callback("on_train_start", muon_w.override(0.4355))
+        if mode == "coco_det_finetune_frozen":
             train_args["freeze"] = 9  # freeze backbone layers 0-8
-    else:  # finetune (default)
+    elif mode == "coco_pose_finetune":
+        train_args.update(
+            data="coco-pose.yaml",
+            epochs=epochs or 70,
+            batch=128,
+            imgsz=640,
+            nbs=64,
+            patience=patience or 30,
+            lr0=0.00125,
+            lrf=0.5,
+            momentum=0.937,
+            weight_decay=0.0007,
+            warmup_epochs=1,
+            warmup_momentum=0.8,
+            warmup_bias_lr=0.1,
+            optimizer="MuSGD",
+            close_mosaic=5,
+            cache="disk",
+            cos_lr=False,
+            pose=24,
+            kobj=4.0,
+            mosaic=1.0,
+            mixup=0,
+            copy_paste=0.0,
+            scale=0.9,
+            fliplr=0.5,
+            degrees=0.0,
+            shear=0.0,
+            translate=0.1,
+            hsv_h=0.015,
+            hsv_s=0.7,
+            hsv_v=0.4,
+            erasing=0.4,
+            auto_augment="randaugment",
+        )
+    else:  # inet_finetune (default)
         train_args.update(
             data="/data/shared-datasets/imagenet",
             epochs=epochs or 50,
