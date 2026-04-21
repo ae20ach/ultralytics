@@ -222,22 +222,22 @@ def afss_on_epoch_end(trainer):
 
 def afss_refresh_metrics(trainer):
     """Run validation on the training set to refresh per-image precision/recall for AFSS."""
-    batch_size = trainer.batch_size // max(trainer.world_size, 1)
-    train_eval_loader = trainer.get_dataloader(
-        trainer.data["train"], batch_size=batch_size, rank=LOCAL_RANK, mode="val"
-    )
+    if not hasattr(trainer, "afss_validator"):
+        batch_size = trainer.batch_size // max(trainer.world_size, 1)
+        train_eval_loader = trainer.get_dataloader(
+            trainer.data["train"], batch_size=batch_size, rank=LOCAL_RANK, mode="val"
+        )
+        trainer.afss_validator = trainer.get_validator().__class__(
+            train_eval_loader,
+            save_dir=trainer.save_dir / "afss_train_eval",
+            args=copy(trainer.args),
+            _callbacks=trainer.callbacks,
+        )
 
-    validator = trainer.get_validator().__class__(
-        train_eval_loader,
-        save_dir=trainer.save_dir / "afss_train_eval",
-        args=copy(trainer.args),
-        _callbacks=trainer.callbacks,
-    )
-    validator(trainer)
-    del train_eval_loader
+    trainer.afss_validator(trainer)
 
     if RANK in {-1, 0}:
-        image_metrics = validator.metrics.box.image_metrics
+        image_metrics = trainer.afss_validator.metrics.box.image_metrics
         dataset = _unwrap_dataset(trainer.train_loader.dataset)
         filename_to_idx = {Path(f).name: i for i, f in enumerate(dataset.im_files)}
         trainer.afss_scheduler.update_metrics(image_metrics, filename_to_idx)
